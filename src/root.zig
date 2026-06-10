@@ -18,6 +18,7 @@ pub const PanelSlot = @import("layout/slot.zig").PanelSlot;
 pub const slot = @import("layout/blueprint.zig").slot;
 pub const box = @import("layout/blueprint.zig").box;
 pub const solve = @import("layout/solver.zig").solve;
+pub const Box = @import("widgets/box.zig").Box;
 
 test {
     // Importing a file in a test block pulls its test blocks into the test
@@ -30,4 +31,5 @@ test {
     _ = @import("layout/slot.zig");
     _ = @import("layout/blueprint.zig");
     _ = @import("layout/solver.zig");
+    _ = @import("widgets/box.zig");
 }
