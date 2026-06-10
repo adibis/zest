@@ -16,6 +16,7 @@ pub const Size = @import("layout/size.zig").Size;
 pub const Direction = @import("layout/slot.zig").Direction;
 pub const PanelSlot = @import("layout/slot.zig").PanelSlot;
 pub const slot = @import("layout/blueprint.zig").slot;
+pub const box = @import("layout/blueprint.zig").box;
 
 test {
     // Importing a file in a test block pulls its test blocks into the test
