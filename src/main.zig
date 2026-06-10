@@ -8,12 +8,19 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const zest = @import("zest");
 
-// Screen layout: fixed 30-cell sidebar on the left, main area takes the rest.
+// Screen layout: fixed sidebar | vertical split (fixed header / body).
 const layout = zest.box(.{
     .direction = .horizontal,
     .children = &.{
         zest.slot(.{ .size = .{ .fixed = 30 } }),
-        zest.slot(.{ .size = .{ .fraction = 1 } }),
+        zest.box(.{
+            .size = .{ .fraction = 1 },
+            .direction = .vertical,
+            .children = &.{
+                zest.slot(.{ .size = .{ .fixed = 3 } }),
+                zest.slot(.{ .size = .{ .fraction = 1 } }),
+            },
+        }),
     },
 });
 
@@ -36,19 +43,26 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
                 .width = rects[0].width,
                 .height = rects[0].height,
             });
-            const main_pane = win.child(.{
+            const header = win.child(.{
                 .x_off = @intCast(rects[1].x),
                 .y_off = @intCast(rects[1].y),
                 .width = rects[1].width,
                 .height = rects[1].height,
             });
+            const body = win.child(.{
+                .x_off = @intCast(rects[2].x),
+                .y_off = @intCast(rects[2].y),
+                .width = rects[2].width,
+                .height = rects[2].height,
+            });
             _ = sidebar.print(&.{.{ .text = "sidebar" }}, .{});
-            const main_text = std.fmt.allocPrint(
+            _ = header.print(&.{.{ .text = "header" }}, .{});
+            const body_text = std.fmt.allocPrint(
                 alloc,
-                "main  ({d}x{d})  press 'q' to quit",
-                .{ rects[1].width, rects[1].height },
+                "body  ({d}x{d})  press 'q' to quit",
+                .{ rects[2].width, rects[2].height },
             ) catch return .idle;
-            _ = main_pane.print(&.{.{ .text = main_text }}, .{});
+            _ = body.print(&.{.{ .text = body_text }}, .{});
             return .redraw;
         },
         .focus_in => {
