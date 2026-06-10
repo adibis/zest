@@ -35,34 +35,16 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
         },
         .winsize => |ws| {
             const bounds = zest.Rect{ .x = 0, .y = 0, .width = ws.cols, .height = ws.rows };
-            const rects = zest.solve(alloc, layout, bounds) catch return .idle;
+            const wins = zest.Box.windows(layout, win, bounds, alloc) catch return .idle;
             win.clear();
-            const sidebar = win.child(.{
-                .x_off = @intCast(rects[0].x),
-                .y_off = @intCast(rects[0].y),
-                .width = rects[0].width,
-                .height = rects[0].height,
-            });
-            const header = win.child(.{
-                .x_off = @intCast(rects[1].x),
-                .y_off = @intCast(rects[1].y),
-                .width = rects[1].width,
-                .height = rects[1].height,
-            });
-            const body = win.child(.{
-                .x_off = @intCast(rects[2].x),
-                .y_off = @intCast(rects[2].y),
-                .width = rects[2].width,
-                .height = rects[2].height,
-            });
-            _ = sidebar.print(&.{.{ .text = "sidebar" }}, .{});
-            _ = header.print(&.{.{ .text = "header" }}, .{});
+            _ = wins[0].print(&.{.{ .text = "sidebar" }}, .{});
+            _ = wins[1].print(&.{.{ .text = "header" }}, .{});
             const body_text = std.fmt.allocPrint(
                 alloc,
                 "body  ({d}x{d})  press 'q' to quit",
-                .{ rects[2].width, rects[2].height },
+                .{ wins[2].width, wins[2].height },
             ) catch return .idle;
-            _ = body.print(&.{.{ .text = body_text }}, .{});
+            _ = wins[2].print(&.{.{ .text = body_text }}, .{});
             return .redraw;
         },
         .focus_in => {
