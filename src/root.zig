@@ -11,10 +11,13 @@ pub const Event = @import("core/app.zig").Event;
 pub const UpdateResult = @import("core/app.zig").UpdateResult;
 pub const FrameArena = @import("core/memory.zig").FrameArena;
 
+pub const Rect = @import("layout/types.zig").Rect;
+
 test {
     // Importing a file in a test block pulls its test blocks into the test
     // binary. Without these lines, tests in sub-files would compile but never
     // run when you execute `zig build test` against the root module.
     _ = @import("core/memory.zig");
     _ = @import("core/app.zig");
+    _ = @import("layout/types.zig");
 }
