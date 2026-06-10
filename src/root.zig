@@ -13,6 +13,8 @@ pub const FrameArena = @import("core/memory.zig").FrameArena;
 
 pub const Rect = @import("layout/rect.zig").Rect;
 pub const Size = @import("layout/size.zig").Size;
+pub const Direction = @import("layout/slot.zig").Direction;
+pub const PanelSlot = @import("layout/slot.zig").PanelSlot;
 
 test {
     // Importing a file in a test block pulls its test blocks into the test
@@ -22,4 +24,5 @@ test {
     _ = @import("core/app.zig");
     _ = @import("layout/rect.zig");
     _ = @import("layout/size.zig");
+    _ = @import("layout/slot.zig");
 }
