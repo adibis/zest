@@ -8,9 +8,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const zest = @import("zest");
 
-// Declare the intended screen layout as a comptime blueprint.
-// The solver does not exist yet, so this produces no visual output —
-// it compiles and proves the blueprint syntax is correct.
+// Screen layout: fixed 30-cell sidebar on the left, main area takes the rest.
 const layout = zest.box(.{
     .direction = .horizontal,
     .children = &.{
@@ -21,11 +19,6 @@ const layout = zest.box(.{
 
 const State = struct {};
 
-// Single-slot layout used to verify the solver end-to-end during development.
-// The full two-pane `layout` above will replace this once the box() solver
-// pass is wired up.
-const debug_layout = zest.slot(.{ .size = .{ .fraction = 1 } });
-
 fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateResult {
     _ = state;
     switch (event) {
@@ -35,21 +28,31 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
         },
         .winsize => |ws| {
             const bounds = zest.Rect{ .x = 0, .y = 0, .width = ws.cols, .height = ws.rows };
-            const rects = zest.solve(alloc, debug_layout, bounds) catch return .idle;
-            // allocPrint stores the string in the frame arena, which outlives this
-            // function call and remains valid through vx.render(). A stack buffer
-            // would be freed when update() returns, leaving the cell buffer with a
-            // dangling pointer into it.
-            const line = std.fmt.allocPrint(
+            const rects = zest.solve(alloc, layout, bounds) catch return .idle;
+            win.clear();
+            const sidebar = win.child(.{
+                .x_off = @intCast(rects[0].x),
+                .y_off = @intCast(rects[0].y),
+                .width = rects[0].width,
+                .height = rects[0].height,
+            });
+            const main_pane = win.child(.{
+                .x_off = @intCast(rects[1].x),
+                .y_off = @intCast(rects[1].y),
+                .width = rects[1].width,
+                .height = rects[1].height,
+            });
+            _ = sidebar.print(&.{.{ .text = "sidebar" }}, .{});
+            const main_text = std.fmt.allocPrint(
                 alloc,
-                "solve: {d} rect(s)  [0]=({d},{d}) {d}x{d}  press 'q' to quit",
-                .{ rects.len, rects[0].x, rects[0].y, rects[0].width, rects[0].height },
+                "main  ({d}x{d})  press 'q' to quit",
+                .{ rects[1].width, rects[1].height },
             ) catch return .idle;
-            _ = win.print(&.{.{ .text = line }}, .{});
+            _ = main_pane.print(&.{.{ .text = main_text }}, .{});
             return .redraw;
         },
         .focus_in => {
-            _ = win.print(&.{.{ .text = "Hello, Zest!  Press 'q' to quit." }}, .{});
+            _ = win.print(&.{.{ .text = "Hello, Zest!" }}, .{});
             return .redraw;
         },
         else => return .idle,
@@ -57,10 +60,6 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
 }
 
 pub fn main(init: std.process.Init) !void {
-    // layout is referenced here so the compiler does not optimise it away
-    // before the solver is wired up to consume it.
-    _ = layout;
-
     var tty_buf: [4096]u8 = undefined;
     var app = try zest.App.init(init.io, init.gpa, init.environ_map, &tty_buf);
     defer app.deinit();
