@@ -27,12 +27,16 @@ const Direction = @import("slot.zig").Direction;
 ///
 /// Because this function returns a type, Zig requires its argument to be
 /// comptime-known. That is enforced by the `comptime` parameter qualifier.
-pub fn slot(comptime opts: struct { size: Size }) type {
+pub fn slot(comptime opts: struct { size: Size, border: bool = false }) type {
     return struct {
         /// Marker the solver uses to distinguish leaf nodes from branch nodes.
         pub const is_slot = true;
         /// The size this panel claims along the layout axis.
         pub const size: Size = opts.size;
+        /// Whether to draw a border around this panel's cell region.
+        /// The window returned by Box.windows() is the inner content area;
+        /// border cells are owned by vaxis and never overwritten by the caller.
+        pub const border: bool = opts.border;
     };
 }
 
@@ -67,6 +71,16 @@ pub fn box(comptime opts: anytype) type {
         /// slot() or box()). The solver iterates with inline for.
         pub const children = opts.children;
     };
+}
+
+test "slot: border defaults to false" {
+    const S = slot(.{ .size = .{ .fixed = 30 } });
+    try std.testing.expect(!S.border);
+}
+
+test "slot: explicit border = true is preserved" {
+    const S = slot(.{ .size = .{ .fixed = 30 }, .border = true });
+    try std.testing.expect(S.border);
 }
 
 test "slot: produced type has is_slot marker" {
