@@ -1,3 +1,10 @@
+//! Per-frame arena allocator.
+//!
+//! All allocations made while building a single frame of UI go through FrameArena.
+//! At the start of each frame, reset() frees everything in one operation — no
+//! per-allocation tracking, no fragmentation, and no individual frees needed.
+//! This is safe because nothing built during a frame outlives the frame itself.
+
 const std = @import("std");
 
 pub const FrameArena = struct {
@@ -17,6 +24,9 @@ pub const FrameArena = struct {
 
     /// Free all per-frame allocations. Call at the start of each render pass.
     pub fn reset(self: *FrameArena) void {
+        // reset() returns a bool indicating whether the backing allocator was
+        // able to reclaim the memory. We don't act on it — either way the arena
+        // is ready for the next frame — so we discard it with _ =.
         _ = self.arena.reset(.free_all);
     }
 };

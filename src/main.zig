@@ -1,3 +1,10 @@
+//! Minimal demo application for zest.
+//!
+//! Shows the event loop wired up end-to-end: renders a greeting on startup
+//! and on every resize, exits cleanly on 'q' or Ctrl-C.
+//! Not part of the library — exists only to verify the framework compiles
+//! and runs correctly as a whole.
+
 const std = @import("std");
 const vaxis = @import("vaxis");
 const zest = @import("zest");

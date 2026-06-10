@@ -1,3 +1,9 @@
+//! Public API surface for the zest library.
+//!
+//! This is the entry point consumers see when they write @import("zest").
+//! All public types are re-exported here so callers never need to know
+//! which internal file a type lives in.
+
 const std = @import("std");
 
 pub const App = @import("core/app.zig").App;
@@ -6,6 +12,9 @@ pub const UpdateResult = @import("core/app.zig").UpdateResult;
 pub const FrameArena = @import("core/memory.zig").FrameArena;
 
 test {
+    // Importing a file in a test block pulls its test blocks into the test
+    // binary. Without these lines, tests in sub-files would compile but never
+    // run when you execute `zig build test` against the root module.
     _ = @import("core/memory.zig");
     _ = @import("core/app.zig");
 }
