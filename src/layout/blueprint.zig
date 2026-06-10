@@ -27,16 +27,18 @@ const Direction = @import("slot.zig").Direction;
 ///
 /// Because this function returns a type, Zig requires its argument to be
 /// comptime-known. That is enforced by the `comptime` parameter qualifier.
-pub fn slot(comptime opts: struct { size: Size, border: bool = false }) type {
+pub fn slot(comptime opts: struct {
+    size: Size,
+    border: bool = false,
+    /// Name used as a struct field in the windows returned by Box.windows().
+    /// Must be unique across all leaf slots in a blueprint tree.
+    id: [:0]const u8 = "",
+}) type {
     return struct {
-        /// Marker the solver uses to distinguish leaf nodes from branch nodes.
         pub const is_slot = true;
-        /// The size this panel claims along the layout axis.
         pub const size: Size = opts.size;
-        /// Whether to draw a border around this panel's cell region.
-        /// The window returned by Box.windows() is the inner content area;
-        /// border cells are owned by vaxis and never overwritten by the caller.
         pub const border: bool = opts.border;
+        pub const id: [:0]const u8 = opts.id;
     };
 }
 
@@ -98,6 +100,16 @@ test "slot: size is preserved on the returned type" {
 test "slot: fraction size is preserved" {
     const S = slot(.{ .size = .{ .fraction = 1 } });
     try std.testing.expectEqual(@as(u16, 1), S.size.fraction);
+}
+
+test "slot: id defaults to empty string" {
+    const S = slot(.{ .size = .{ .fixed = 30 } });
+    try std.testing.expectEqualStrings("", S.id);
+}
+
+test "slot: explicit id is preserved on the returned type" {
+    const S = slot(.{ .size = .{ .fixed = 30 }, .id = "sidebar" });
+    try std.testing.expectEqualStrings("sidebar", S.id);
 }
 
 test "slot: two slots with different sizes carry different values" {
