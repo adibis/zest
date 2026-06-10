@@ -27,6 +27,37 @@ pub fn solve(
         rects[0] = bounds;
         return rects;
     }
+    if (@hasDecl(Blueprint, "is_box")) {
+        const rects = try allocator.alloc(Rect, Blueprint.children.len);
+        var cursor: u16 = 0;
+        // inline for is required: each Child is a distinct comptime type, so
+        // Child.size is a different comptime value per iteration and the switch
+        // must be resolved separately for each one.
+        inline for (Blueprint.children, 0..) |Child, i| {
+            switch (Child.size) {
+                .fixed => |w| {
+                    rects[i] = .{
+                        .x = bounds.x +| cursor,
+                        .y = bounds.y,
+                        .width = w,
+                        .height = bounds.height,
+                    };
+                    cursor +|= w;
+                },
+                .fraction, .percent => {
+                    // Unresolved in the fixed pass — holds cursor position with
+                    // zero width until the fraction pass distributes remaining space.
+                    rects[i] = .{
+                        .x = bounds.x +| cursor,
+                        .y = bounds.y,
+                        .width = 0,
+                        .height = bounds.height,
+                    };
+                },
+            }
+        }
+        return rects;
+    }
     // Passing a type that carries neither is_slot nor is_box is a programming
     // error. Because Blueprint is comptime, the compiler monomorphises solve()
     // separately for each call site, and @compileError fires only for the
@@ -46,6 +77,73 @@ test "solve: single slot returns bounds unchanged" {
 
     try std.testing.expectEqual(@as(usize, 1), rects.len);
     try std.testing.expectEqual(bounds, rects[0]);
+}
+
+test "solve: box with one fixed child — placed at left edge" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .horizontal,
+        .children = &.{slot(.{ .size = .{ .fixed = 30 } })},
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const bounds = Rect{ .x = 0, .y = 0, .width = 80, .height = 24 };
+    const rects = try solve(arena.allocator(), B, bounds);
+
+    try std.testing.expectEqual(@as(usize, 1), rects.len);
+    try std.testing.expectEqual(@as(u16, 0), rects[0].x);
+    try std.testing.expectEqual(@as(u16, 30), rects[0].width);
+    try std.testing.expectEqual(@as(u16, 24), rects[0].height);
+}
+
+test "solve: box with two fixed children — correct offsets, no overlap" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .horizontal,
+        .children = &.{
+            slot(.{ .size = .{ .fixed = 20 } }),
+            slot(.{ .size = .{ .fixed = 30 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const bounds = Rect{ .x = 0, .y = 0, .width = 80, .height = 24 };
+    const rects = try solve(arena.allocator(), B, bounds);
+
+    try std.testing.expectEqual(@as(usize, 2), rects.len);
+    try std.testing.expectEqual(@as(u16, 0), rects[0].x);
+    try std.testing.expectEqual(@as(u16, 20), rects[0].width);
+    try std.testing.expectEqual(@as(u16, 20), rects[1].x);
+    try std.testing.expectEqual(@as(u16, 30), rects[1].width);
+}
+
+test "solve: box with fixed and fraction child — fraction holds position, zero width" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .horizontal,
+        .children = &.{
+            slot(.{ .size = .{ .fixed = 30 } }),
+            slot(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const bounds = Rect{ .x = 0, .y = 0, .width = 80, .height = 24 };
+    const rects = try solve(arena.allocator(), B, bounds);
+
+    try std.testing.expectEqual(@as(usize, 2), rects.len);
+    try std.testing.expectEqual(@as(u16, 30), rects[0].width);
+    try std.testing.expectEqual(@as(u16, 30), rects[1].x);
+    try std.testing.expectEqual(@as(u16, 0), rects[1].width);
 }
 
 test "solve: single slot preserves non-zero origin" {
