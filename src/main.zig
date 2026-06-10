@@ -36,10 +36,13 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
         .winsize => |ws| {
             const bounds = zest.Rect{ .x = 0, .y = 0, .width = ws.cols, .height = ws.rows };
             const rects = zest.solve(alloc, debug_layout, bounds) catch return .idle;
-            var buf: [128]u8 = undefined;
-            const line = std.fmt.bufPrint(
-                &buf,
-                "solve: {d} rect(s)  [0]=({d},{d}) {d}x{d}     press 'q' to quit",
+            // allocPrint stores the string in the frame arena, which outlives this
+            // function call and remains valid through vx.render(). A stack buffer
+            // would be freed when update() returns, leaving the cell buffer with a
+            // dangling pointer into it.
+            const line = std.fmt.allocPrint(
+                alloc,
+                "solve: {d} rect(s)  [0]=({d},{d}) {d}x{d}  press 'q' to quit",
                 .{ rects.len, rects[0].x, rects[0].y, rects[0].width, rects[0].height },
             ) catch return .idle;
             _ = win.print(&.{.{ .text = line }}, .{});
