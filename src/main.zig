@@ -21,14 +21,26 @@ const layout = zest.box(.{
 
 const State = struct {};
 
-fn update(state: *State, event: zest.Event, win: vaxis.Window, _: std.mem.Allocator) zest.UpdateResult {
+// Single-slot layout used to verify the solver end-to-end during development.
+// The full two-pane `layout` above will replace this once the box() solver
+// pass is wired up.
+const debug_layout = zest.slot(.{ .size = .{ .fraction = 1 } });
+
+fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateResult {
     _ = state;
     switch (event) {
         .key_press => |key| {
             if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
             return .idle;
         },
-        .winsize, .focus_in => {
+        .winsize => |ws| {
+            const bounds = zest.Rect{ .x = 0, .y = 0, .width = ws.cols, .height = ws.rows };
+            const rects = zest.solve(alloc, debug_layout, bounds) catch return .idle;
+            std.debug.print("solve: {d} rect(s), [0] = {any}\n", .{ rects.len, rects[0] });
+            _ = win.print(&.{.{ .text = "Hello, Zest!  Press 'q' to quit." }}, .{});
+            return .redraw;
+        },
+        .focus_in => {
             _ = win.print(&.{.{ .text = "Hello, Zest!  Press 'q' to quit." }}, .{});
             return .redraw;
         },
