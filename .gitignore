@@ -1,0 +1,23 @@
+# Zig build artifacts
+zig-out/
+zig-cache/
+.zig-cache/
+
+# Plan and working documents
+plan.md
+*.plan.md
+notes.md
+*.notes.md
+SCRATCH.md
+TODO.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
