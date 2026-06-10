@@ -29,36 +29,37 @@ pub fn solve(
     }
     if (@hasDecl(Blueprint, "is_box")) {
         const rects = try allocator.alloc(Rect, Blueprint.children.len);
+        // is_horiz is comptime, so every branch that depends on it folds at
+        // compile time — horizontal and vertical boxes produce different machine
+        // code with zero shared runtime overhead.
+        const is_horiz = Blueprint.direction == .horizontal;
         var cursor: u16 = 0;
-        // inline for is required: each Child is a distinct comptime type, so
-        // Child.size is a different comptime value per iteration and the switch
-        // must be resolved separately for each one.
         inline for (Blueprint.children, 0..) |Child, i| {
             switch (Child.size) {
                 .fixed => |w| {
-                    rects[i] = .{
-                        .x = bounds.x +| cursor,
-                        .y = bounds.y,
-                        .width = w,
-                        .height = bounds.height,
+                    rects[i] = if (is_horiz) .{
+                        .x = bounds.x +| cursor, .y = bounds.y,
+                        .width = w,              .height = bounds.height,
+                    } else .{
+                        .x = bounds.x,           .y = bounds.y +| cursor,
+                        .width = bounds.width,   .height = w,
                     };
                     cursor +|= w;
                 },
                 .fraction, .percent => {
-                    // Unresolved in the fixed pass — holds cursor position with
-                    // zero width until the fraction pass distributes remaining space.
-                    rects[i] = .{
-                        .x = bounds.x +| cursor,
-                        .y = bounds.y,
-                        .width = 0,
-                        .height = bounds.height,
+                    rects[i] = if (is_horiz) .{
+                        .x = bounds.x +| cursor, .y = bounds.y,
+                        .width = 0,              .height = bounds.height,
+                    } else .{
+                        .x = bounds.x,           .y = bounds.y +| cursor,
+                        .width = bounds.width,   .height = 0,
                     };
                 },
             }
         }
-        // Fraction pass: distribute whatever width remains after fixed children.
-        // cursor now holds the sum of all fixed widths because fraction children
-        // did not advance it in the pass above.
+        // Fraction pass: distribute whatever main-axis space remains after fixed
+        // children. cursor equals total fixed size because fractions did not
+        // advance it.
         var fraction_weight_total: u32 = 0;
         inline for (Blueprint.children) |Child| {
             switch (Child.size) {
@@ -68,24 +69,30 @@ pub fn solve(
         }
 
         if (fraction_weight_total > 0) {
-            const remaining: u16 = bounds.width -| cursor;
+            const main_size = if (is_horiz) bounds.width else bounds.height;
+            const remaining: u16 = main_size -| cursor;
             inline for (Blueprint.children, 0..) |Child, i| {
                 switch (Child.size) {
                     .fraction => |weight| {
-                        rects[i].width = @intCast(@min(
+                        const dim: u16 = @intCast(@min(
                             @as(u64, remaining) * weight / fraction_weight_total,
                             std.math.maxInt(u16),
                         ));
+                        if (is_horiz) rects[i].width = dim else rects[i].height = dim;
                     },
                     else => {},
                 }
             }
-            // The fixed pass recorded x positions assuming fraction children have
-            // zero width. Now that all widths are known, recompute every x in order.
+            // Recompute positions along the main axis now that all sizes are known.
             var pos: u16 = 0;
             for (rects) |*r| {
-                r.x = bounds.x +| pos;
-                pos +|= r.width;
+                if (is_horiz) {
+                    r.x   = bounds.x +| pos;
+                    pos +|= r.width;
+                } else {
+                    r.y   = bounds.y +| pos;
+                    pos +|= r.height;
+                }
             }
         }
 
@@ -241,6 +248,73 @@ test "solve: weighted fractions split proportionally" {
     try std.testing.expectEqual(@as(u16, 30), rects[0].width);
     try std.testing.expectEqual(@as(u16, 30), rects[1].x);
     try std.testing.expectEqual(@as(u16, 60), rects[1].width);
+}
+
+test "solve: vertical box with two fixed children — correct y offsets, no overlap" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .vertical,
+        .children = &.{
+            slot(.{ .size = .{ .fixed = 10 } }),
+            slot(.{ .size = .{ .fixed = 20 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
+
+    try std.testing.expectEqual(@as(u16, 0), rects[0].y);
+    try std.testing.expectEqual(@as(u16, 10), rects[0].height);
+    try std.testing.expectEqual(@as(u16, 10), rects[1].y);
+    try std.testing.expectEqual(@as(u16, 20), rects[1].height);
+    try std.testing.expectEqual(@as(u16, 80), rects[0].width);
+}
+
+test "solve: vertical box — fixed + fraction gets remaining height" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .vertical,
+        .children = &.{
+            slot(.{ .size = .{ .fixed = 3 } }),
+            slot(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
+
+    try std.testing.expectEqual(@as(u16, 3), rects[0].height);
+    try std.testing.expectEqual(@as(u16, 3), rects[1].y);
+    try std.testing.expectEqual(@as(u16, 37), rects[1].height);
+    try std.testing.expectEqual(@as(u16, 80), rects[1].width);
+}
+
+test "solve: vertical box — two equal fractions split height evenly" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .vertical,
+        .children = &.{
+            slot(.{ .size = .{ .fraction = 1 } }),
+            slot(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
+
+    try std.testing.expectEqual(@as(u16, 0), rects[0].y);
+    try std.testing.expectEqual(@as(u16, 20), rects[0].height);
+    try std.testing.expectEqual(@as(u16, 20), rects[1].y);
+    try std.testing.expectEqual(@as(u16, 20), rects[1].height);
 }
 
 test "solve: single slot preserves non-zero origin" {
