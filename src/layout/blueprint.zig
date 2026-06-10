@@ -36,6 +36,16 @@ pub fn slot(comptime opts: struct { size: Size }) type {
     };
 }
 
+// Converts an anonymous struct literal (.{ .fixed = N } etc.) to Size.
+// box() takes `anytype` for opts because the children field has a variable-
+// length type — so unlike slot(), no automatic coercion to Size happens.
+fn optsToSize(comptime s: anytype) Size {
+    if (@hasField(@TypeOf(s), "fixed"))    return .{ .fixed    = s.fixed };
+    if (@hasField(@TypeOf(s), "fraction")) return .{ .fraction = s.fraction };
+    if (@hasField(@TypeOf(s), "percent"))  return .{ .percent  = s.percent };
+    @compileError("size must be .{ .fixed = N }, .{ .fraction = N }, or .{ .percent = N }");
+}
+
 /// Returns a comptime branch-node descriptor for the layout blueprint.
 ///
 /// opts is anytype rather than a concrete struct because the children field
@@ -46,6 +56,11 @@ pub fn box(comptime opts: anytype) type {
     return struct {
         /// Marker the solver uses to distinguish branch nodes from leaf nodes.
         pub const is_box = true;
+        /// How much space this box claims along its parent's main axis.
+        /// Ignored for the root box (which gets the full bounds). Required
+        /// when this box is a child of another box — the parent solver reads
+        /// it exactly like a slot's size.
+        pub const size: Size = if (@hasField(@TypeOf(opts), "size")) optsToSize(opts.size) else .{ .fraction = 1 };
         /// The axis along which children are arranged.
         pub const direction: Direction = opts.direction;
         /// Comptime array of child descriptors (each a type returned by
@@ -110,4 +125,21 @@ test "box: children are identifiable as slots" {
         .children = &.{slot(.{ .size = .{ .fixed = 20 } })},
     });
     try std.testing.expect(@hasDecl(B.children[0], "is_slot"));
+}
+
+test "box: size defaults to fraction(1) when omitted" {
+    const B = box(.{
+        .direction = .horizontal,
+        .children = &.{slot(.{ .size = .{ .fixed = 30 } })},
+    });
+    try std.testing.expectEqual(@as(u16, 1), B.size.fraction);
+}
+
+test "box: explicit size is preserved on the returned type" {
+    const B = box(.{
+        .size = .{ .fixed = 40 },
+        .direction = .horizontal,
+        .children = &.{slot(.{ .size = .{ .fixed = 30 } })},
+    });
+    try std.testing.expectEqual(@as(u16, 40), B.size.fixed);
 }
