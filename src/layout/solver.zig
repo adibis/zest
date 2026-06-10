@@ -56,6 +56,39 @@ pub fn solve(
                 },
             }
         }
+        // Fraction pass: distribute whatever width remains after fixed children.
+        // cursor now holds the sum of all fixed widths because fraction children
+        // did not advance it in the pass above.
+        var fraction_weight_total: u32 = 0;
+        inline for (Blueprint.children) |Child| {
+            switch (Child.size) {
+                .fraction => |weight| { fraction_weight_total += weight; },
+                else => {},
+            }
+        }
+
+        if (fraction_weight_total > 0) {
+            const remaining: u16 = bounds.width -| cursor;
+            inline for (Blueprint.children, 0..) |Child, i| {
+                switch (Child.size) {
+                    .fraction => |weight| {
+                        rects[i].width = @intCast(@min(
+                            @as(u64, remaining) * weight / fraction_weight_total,
+                            std.math.maxInt(u16),
+                        ));
+                    },
+                    else => {},
+                }
+            }
+            // The fixed pass recorded x positions assuming fraction children have
+            // zero width. Now that all widths are known, recompute every x in order.
+            var pos: u16 = 0;
+            for (rects) |*r| {
+                r.x = bounds.x +| pos;
+                pos +|= r.width;
+            }
+        }
+
         return rects;
     }
     // Passing a type that carries neither is_slot nor is_box is a programming
@@ -123,7 +156,7 @@ test "solve: box with two fixed children — correct offsets, no overlap" {
     try std.testing.expectEqual(@as(u16, 30), rects[1].width);
 }
 
-test "solve: box with fixed and fraction child — fraction holds position, zero width" {
+test "solve: box with fixed and fraction child — fraction gets remaining width" {
     const slot = @import("blueprint.zig").slot;
     const box = @import("blueprint.zig").box;
     const B = box(.{
@@ -143,7 +176,71 @@ test "solve: box with fixed and fraction child — fraction holds position, zero
     try std.testing.expectEqual(@as(usize, 2), rects.len);
     try std.testing.expectEqual(@as(u16, 30), rects[0].width);
     try std.testing.expectEqual(@as(u16, 30), rects[1].x);
-    try std.testing.expectEqual(@as(u16, 0), rects[1].width);
+    try std.testing.expectEqual(@as(u16, 50), rects[1].width);
+}
+
+test "solve: fixed + fraction — fraction gets remaining width" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .horizontal,
+        .children = &.{
+            slot(.{ .size = .{ .fixed = 20 } }),
+            slot(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 24 });
+
+    try std.testing.expectEqual(@as(u16, 20), rects[0].width);
+    try std.testing.expectEqual(@as(u16, 20), rects[1].x);
+    try std.testing.expectEqual(@as(u16, 60), rects[1].width);
+}
+
+test "solve: two equal fractions split remaining width evenly" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .horizontal,
+        .children = &.{
+            slot(.{ .size = .{ .fraction = 1 } }),
+            slot(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 24 });
+
+    try std.testing.expectEqual(@as(u16, 0), rects[0].x);
+    try std.testing.expectEqual(@as(u16, 40), rects[0].width);
+    try std.testing.expectEqual(@as(u16, 40), rects[1].x);
+    try std.testing.expectEqual(@as(u16, 40), rects[1].width);
+}
+
+test "solve: weighted fractions split proportionally" {
+    const slot = @import("blueprint.zig").slot;
+    const box = @import("blueprint.zig").box;
+    const B = box(.{
+        .direction = .horizontal,
+        .children = &.{
+            slot(.{ .size = .{ .fraction = 1 } }),
+            slot(.{ .size = .{ .fraction = 2 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 90, .height = 24 });
+
+    try std.testing.expectEqual(@as(u16, 30), rects[0].width);
+    try std.testing.expectEqual(@as(u16, 30), rects[1].x);
+    try std.testing.expectEqual(@as(u16, 60), rects[1].width);
 }
 
 test "solve: single slot preserves non-zero origin" {
