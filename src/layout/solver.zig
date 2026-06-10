@@ -10,7 +10,7 @@ const Rect = @import("rect.zig").Rect;
 
 /// Returns the total number of leaf slots in Blueprint's tree at comptime.
 /// The result is used to allocate exactly the right slice before recursing.
-fn leafCount(comptime Blueprint: type) usize {
+pub fn leafCount(comptime Blueprint: type) usize {
     if (@hasDecl(Blueprint, "is_slot")) return 1;
     if (@hasDecl(Blueprint, "is_box")) {
         var count: usize = 0;

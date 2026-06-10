@@ -12,13 +12,13 @@ const zest = @import("zest");
 const layout = zest.box(.{
     .direction = .horizontal,
     .children = &.{
-        zest.slot(.{ .size = .{ .fixed = 30 } }),
+        zest.slot(.{ .size = .{ .fixed = 30 }, .border = true }),
         zest.box(.{
             .size = .{ .fraction = 1 },
             .direction = .vertical,
             .children = &.{
-                zest.slot(.{ .size = .{ .fixed = 3 } }),
-                zest.slot(.{ .size = .{ .fraction = 1 } }),
+                zest.slot(.{ .size = .{ .fixed = 3 }, .border = true }),
+                zest.slot(.{ .size = .{ .fraction = 1 }, .border = true }),
             },
         }),
     },
@@ -35,8 +35,8 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
         },
         .winsize => |ws| {
             const bounds = zest.Rect{ .x = 0, .y = 0, .width = ws.cols, .height = ws.rows };
-            const wins = zest.Box.windows(layout, win, bounds, alloc) catch return .idle;
             win.clear();
+            const wins = zest.Box.windows(layout, win, bounds, alloc) catch return .idle;
             _ = wins[0].print(&.{.{ .text = "sidebar" }}, .{});
             _ = wins[1].print(&.{.{ .text = "header" }}, .{});
             const body_text = std.fmt.allocPrint(
