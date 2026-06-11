@@ -3,6 +3,9 @@ zig-out/
 zig-cache/
 .zig-cache/
 
+# Local working directory — never committed
+local/
+
 # Plan and working documents
 plan.md
 *.plan.md
