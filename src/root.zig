@@ -20,6 +20,8 @@ pub const box = @import("layout/blueprint.zig").box;
 pub const solve = @import("layout/solver.zig").solve;
 pub const Box = @import("widgets/box.zig").Box;
 pub const WindowsType = @import("widgets/box.zig").WindowsType;
+pub const Panel = @import("widgets/box.zig").Panel;
+pub const RenderContext = @import("widgets/box.zig").RenderContext;
 pub const Focus = @import("core/focus.zig").Focus;
 pub const FocusStack = @import("core/focus.zig").FocusStack;
 

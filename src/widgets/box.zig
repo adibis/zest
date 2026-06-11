@@ -14,6 +14,20 @@ const vaxis = @import("vaxis");
 const Rect = @import("../layout/rect.zig").Rect;
 const solveInto = @import("../layout/solver.zig").solveInto;
 const leafCount = @import("../layout/solver.zig").leafCount;
+const FocusStack = @import("../core/focus.zig").FocusStack;
+
+/// A resolved layout region with its associated render state for a single frame.
+/// Each named field in the struct returned by Box.windows() is a Panel.
+pub const Panel = struct {
+    win:     vaxis.Window,
+    focused: bool,
+};
+
+/// Per-frame render context passed to Box.windows(). Fields are additive —
+/// adding theme or other state here does not change existing call sites.
+pub const RenderContext = struct {
+    focus: ?*const FocusStack = null,
+};
 
 /// Walks the blueprint tree and returns a comptime array of border flags,
 /// one per leaf slot, in the same depth-first left-to-right order as solve().
@@ -53,9 +67,9 @@ fn leafIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
     return result;
 }
 
-/// Produces a struct type with one vaxis.Window field per leaf slot, named by
-/// each slot's id. This is the return type of Box.windows() — Zig infers it
-/// at the call site so callers rarely need to name it explicitly.
+/// Produces a struct type with one Panel field per leaf slot, named by each
+/// slot's id. This is the return type of Box.windows() — Zig infers it at the
+/// call site so callers rarely need to name it explicitly.
 pub fn WindowsType(comptime Blueprint: type) type {
     const ids = comptime leafIds(Blueprint);
     const N = ids.len;
@@ -64,7 +78,7 @@ pub fn WindowsType(comptime Blueprint: type) type {
     var attrs: [N]std.builtin.Type.StructField.Attributes = undefined;
     inline for (ids, 0..) |id, i| {
         names[i] = id;
-        types[i] = vaxis.Window;
+        types[i] = Panel;
         attrs[i] = .{};
     }
     return @Struct(.auto, null, &names, &types, &attrs);
@@ -83,30 +97,36 @@ pub const Box = struct {
         return leafIds(Blueprint);
     }
 
-    /// Solves Blueprint's layout within bounds, then wraps each leaf Rect in a
-    /// vaxis.Window child of root_win. Returns a struct with one field per leaf
-    /// slot named by each slot's id. If a slot declares `border = true`, the
-    /// border is drawn immediately and the returned window is the inner content
-    /// area. All geometry is stack-allocated — no allocator needed.
+    /// Solves Blueprint's layout within bounds and returns a named struct of
+    /// Panels, one per leaf slot. Each Panel carries the resolved vaxis.Window
+    /// and a focused bool stamped from ctx.focus (false when focus is null).
+    /// If a slot declares `border = true`, the border is drawn immediately and
+    /// the Panel's window is the inner content area. All geometry is
+    /// stack-allocated — no allocator needed.
     pub fn windows(
         comptime Blueprint: type,
         root_win: vaxis.Window,
         bounds: Rect,
+        ctx: RenderContext,
     ) WindowsType(Blueprint) {
         var rects: [leafCount(Blueprint)]Rect = undefined;
         solveInto(Blueprint, bounds, &rects);
         const borders = comptime leafBorders(Blueprint);
         const ids = comptime leafIds(Blueprint);
+        const active: ?usize = if (ctx.focus) |f| f.activeIndex() else null;
         var result: WindowsType(Blueprint) = undefined;
         inline for (ids, 0..) |id, i| {
             const r = rects[i];
-            @field(result, id) = root_win.child(.{
-                .x_off = @intCast(r.x),
-                .y_off = @intCast(r.y),
-                .width  = r.width,
-                .height = r.height,
-                .border = if (borders[i]) .{ .where = .all } else .{},
-            });
+            @field(result, id) = Panel{
+                .win = root_win.child(.{
+                    .x_off = @intCast(r.x),
+                    .y_off = @intCast(r.y),
+                    .width  = r.width,
+                    .height = r.height,
+                    .border = if (borders[i]) .{ .where = .all } else .{},
+                }),
+                .focused = if (active) |a| a == i else false,
+            };
         }
         return result;
     }
@@ -139,14 +159,14 @@ test "Box.windows: returns one window per leaf slot, no borders" {
         .width = screen.width, .height = screen.height, .screen = &screen,
     };
 
-    const wins = Box.windows(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
+    const wins = Box.windows(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 }, .{});
 
-    try std.testing.expectEqual(@as(u16, 20), wins.a.width);
-    try std.testing.expectEqual(@as(u16, 40), wins.a.height);
-    try std.testing.expectEqual(@as(u16, 60), wins.b.width);
-    try std.testing.expectEqual(@as(u16, 5),  wins.b.height);
-    try std.testing.expectEqual(@as(u16, 60), wins.c.width);
-    try std.testing.expectEqual(@as(u16, 35), wins.c.height);
+    try std.testing.expectEqual(@as(u16, 20), wins.a.win.width);
+    try std.testing.expectEqual(@as(u16, 40), wins.a.win.height);
+    try std.testing.expectEqual(@as(u16, 60), wins.b.win.width);
+    try std.testing.expectEqual(@as(u16, 5),  wins.b.win.height);
+    try std.testing.expectEqual(@as(u16, 60), wins.c.win.width);
+    try std.testing.expectEqual(@as(u16, 35), wins.c.win.height);
 }
 
 test "Box.windows: bordered slot is inset by one cell per edge" {
@@ -169,14 +189,14 @@ test "Box.windows: bordered slot is inset by one cell per edge" {
         .width = screen.width, .height = screen.height, .screen = &screen,
     };
 
-    const wins = Box.windows(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
+    const wins = Box.windows(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 }, .{});
 
     // bordered slot: 20 wide → inner 18 (−1 left, −1 right); 40 tall → inner 38
-    try std.testing.expectEqual(@as(u16, 18), wins.left.width);
-    try std.testing.expectEqual(@as(u16, 38), wins.left.height);
+    try std.testing.expectEqual(@as(u16, 18), wins.left.win.width);
+    try std.testing.expectEqual(@as(u16, 38), wins.left.win.height);
     // no-border slot: full size
-    try std.testing.expectEqual(@as(u16, 60), wins.right.width);
-    try std.testing.expectEqual(@as(u16, 40), wins.right.height);
+    try std.testing.expectEqual(@as(u16, 60), wins.right.win.width);
+    try std.testing.expectEqual(@as(u16, 40), wins.right.win.height);
 }
 
 test "WindowsType: flat blueprint produces struct with correct field names" {

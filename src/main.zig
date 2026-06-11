@@ -24,8 +24,6 @@ const layout = zest.box(.{
     },
 });
 
-// Both derived from the blueprint — no separate count or ID list to maintain.
-const panel_ids = zest.Box.panelIds(layout);
 const State = struct {
     focus: zest.FocusStack = zest.FocusStack.init(zest.Focus.init(zest.Box.panelCount(layout))),
 };
@@ -33,15 +31,15 @@ const State = struct {
 fn draw(state: *State, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateResult {
     const bounds = zest.Rect{ .x = 0, .y = 0, .width = win.width, .height = win.height };
     win.clear();
-    const wins = zest.Box.windows(layout, win, bounds);
-    _ = wins.sidebar.print(&.{.{ .text = if (state.focus.is("sidebar", &panel_ids)) "sidebar [*]" else "sidebar" }}, .{});
-    _ = wins.header .print(&.{.{ .text = if (state.focus.is("header",  &panel_ids)) "header [*]"  else "header"  }}, .{});
+    const wins = zest.Box.windows(layout, win, bounds, .{ .focus = &state.focus });
+    _ = wins.sidebar.win.print(&.{.{ .text = if (wins.sidebar.focused) "sidebar [*]" else "sidebar" }}, .{});
+    _ = wins.header .win.print(&.{.{ .text = if (wins.header.focused)  "header [*]"  else "header"  }}, .{});
     const body_text = std.fmt.allocPrint(
         alloc,
         "{s}  ({d}x{d})  tab to cycle focus  q to quit",
-        .{ if (state.focus.is("body", &panel_ids)) "body [*]" else "body", wins.body.width, wins.body.height },
+        .{ if (wins.body.focused) "body [*]" else "body", wins.body.win.width, wins.body.win.height },
     ) catch return .idle;
-    _ = wins.body.print(&.{.{ .text = body_text }}, .{});
+    _ = wins.body.win.print(&.{.{ .text = body_text }}, .{});
     return .redraw;
 }
 
