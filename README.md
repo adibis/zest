@@ -42,6 +42,70 @@ All memory allocated during a render pass lives in a frame-scoped arena that is 
 
 ![Zest demo — three bordered panels with named layout](docs/img/demo.png)
 
+---
+
+## Quick Start
+
+Declare your screen layout once as a comptime blueprint — Zest resolves panel positions from the actual terminal dimensions at render time:
+
+```zig
+const layout = zest.box(.{
+    .direction = .horizontal,
+    .children = &.{
+        zest.slot(.{ .id = "sidebar", .size = .{ .fixed = 30 }, .border = true }),
+        zest.box(.{
+            .size      = .{ .fraction = 1 },
+            .direction = .vertical,
+            .children  = &.{
+                zest.slot(.{ .id = "header", .size = .{ .fixed = 3 },    .border = true }),
+                zest.slot(.{ .id = "body",   .size = .{ .fraction = 1 }, .border = true }),
+            },
+        }),
+    },
+});
+```
+
+On each resize, call `Box.windows()` to get a named struct of sub-windows — one field per slot, no index arithmetic:
+
+```zig
+fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateResult {
+    switch (event) {
+        .winsize => |ws| {
+            const bounds = zest.Rect{ .x = 0, .y = 0, .width = ws.cols, .height = ws.rows };
+            win.clear();
+            const wins = zest.Box.windows(layout, win, bounds);
+            _ = wins.sidebar.print(&.{.{ .text = "Sidebar" }}, .{});
+            _ = wins.header.print(&.{.{ .text = "Header"  }}, .{});
+            _ = wins.body.print(&.{.{ .text = "Body"    }}, .{});
+            return .redraw;
+        },
+        .key_press => |key| {
+            if (key.matches('q', .{})) return .quit;
+            return .idle;
+        },
+        else => return .idle,
+    }
+}
+
+pub fn main(init: std.process.Init) !void {
+    var tty_buf: [4096]u8 = undefined;
+    var app = try zest.App.init(init.io, init.gpa, init.environ_map, &tty_buf);
+    defer app.deinit();
+    var state: State = .{};
+    try app.run(&state, update);
+}
+```
+
+Renaming a slot — `"sidebar"` to `"nav"` — is a compile error, not a silent index mismatch:
+
+```
+error: no field named 'sidebar' in struct 'WindowsType(box(.{ .direction = .horizontal, .children = &.{ ... } }))'
+    _ = wins.sidebar.print(...)
+             ^~~~~~~
+```
+
+---
+
 ## Roadmap
 
 | Milestone | Scope | Status |
