@@ -27,6 +27,15 @@ pub const Panel = struct {
     focused: bool,
 };
 
+// TODO: Introduce a typed RenderContext (theme, focus, etc.) once the theme
+// system is finalised. panels() currently accepts ctx: anytype to avoid locking
+// in the shape before we know what belongs here.
+
+// TODO: leafFocusable, leafBorders, and leafIds are structurally identical
+// tree-walkers that differ only in what they extract from each leaf. Once the
+// node type set stabilises, unify into a single generic walker:
+// fn leafCollect(comptime Blueprint: type, comptime T: type, comptime f) [N]T.
+
 /// Walks the blueprint tree and returns a comptime array of focusable flags,
 /// one per leaf pane, in the same depth-first left-to-right order as solve().
 fn leafFocusable(comptime Blueprint: type) [leafCount(Blueprint)]bool {

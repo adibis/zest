@@ -66,6 +66,13 @@ fn optsToSize(comptime s: anytype) Size {
     @compileError("size must be .{ .fixed = N }, .{ .fraction = N }, or .{ .percent = N }");
 }
 
+// TODO(design): The is_pane / is_split / is_domain boolean marker pattern
+// has no exhaustiveness guarantee. A type that accidentally declares both
+// is_pane and is_split would silently take the is_pane branch everywhere.
+// The correct fix is a single `node_kind: enum { pane, split, domain }`
+// field, dispatched via `switch (Blueprint.node_kind)` in the solver and
+// compositor. Defer until the custom widget state protocol is finalised and
+// we know whether new node kinds will be needed.
 fn splitImpl(comptime dir: Direction, comptime opts: anytype) type {
     return struct {
         pub const is_split = true;
