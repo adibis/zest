@@ -9,6 +9,23 @@
 const std = @import("std");
 const Rect = @import("rect.zig").Rect;
 
+/// Returns the number of focusable leaf panes in Blueprint's tree at comptime.
+/// Non-focusable panes (focusable = false) are excluded. Use this to initialize
+/// a FocusStack so Tab cycling never lands on display-only panes.
+pub fn focusableLeafCount(comptime Blueprint: type) usize {
+    if (@hasDecl(Blueprint, "is_pane")) {
+        return if (Blueprint.focusable) 1 else 0;
+    }
+    if (@hasDecl(Blueprint, "is_split")) {
+        var count: usize = 0;
+        inline for (Blueprint.children) |Child| {
+            count += comptime focusableLeafCount(Child);
+        }
+        return count;
+    }
+    @compileError("Blueprint must be produced by pane(), hsplit(), or vsplit()");
+}
+
 /// Returns the total number of leaf panes in Blueprint's tree at comptime.
 /// The result is used to allocate exactly the right slice before recursing.
 pub fn leafCount(comptime Blueprint: type) usize {
