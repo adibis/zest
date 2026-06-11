@@ -117,3 +117,77 @@ test "Focus: set() is no-op when count is 0" {
     f.set(1);
     try std.testing.expectEqual(@as(usize, 0), f.active());
 }
+
+/// A stack of Focus objects for hierarchical focus management.
+/// push() installs a new Focus (e.g. for a modal dialog); pop() restores the previous one.
+/// top() returns a pointer to the active Focus. Capacity is fixed at 8 levels.
+///
+/// For multi-window apps, keep one FocusStack per window and store a *FocusStack
+/// pointer in your state. Point it at the active window's stack; App.run() receives
+/// **FocusStack and always operates on whatever it currently points to.
+pub const FocusStack = struct {
+    rings: [8]Focus = undefined,
+    depth: usize = 0,
+
+    pub fn init(base: Focus) FocusStack {
+        var s = FocusStack{};
+        s.rings[0] = base;
+        s.depth = 1;
+        return s;
+    }
+
+    /// Returns a pointer to the active (top) Focus.
+    pub fn top(self: *FocusStack) *Focus {
+        return &self.rings[self.depth - 1];
+    }
+
+    /// Pushes a new Focus onto the stack. Returns error.Overflow if full.
+    pub fn push(self: *FocusStack, focus: Focus) error{Overflow}!void {
+        if (self.depth >= self.rings.len) return error.Overflow;
+        self.rings[self.depth] = focus;
+        self.depth += 1;
+    }
+
+    /// Pops the top Focus. No-op if only the base Focus remains.
+    pub fn pop(self: *FocusStack) void {
+        if (self.depth > 1) self.depth -= 1;
+    }
+
+    /// Convenience wrapper: jumps the top Focus directly to `index`.
+    pub fn set(self: *FocusStack, index: usize) void {
+        self.top().set(index);
+    }
+
+    /// Convenience wrapper: returns true if the named slot is active on the top Focus.
+    pub fn is(self: *FocusStack, comptime id: [:0]const u8, comptime ids: []const [:0]const u8) bool {
+        return self.top().is(id, ids);
+    }
+};
+
+test "FocusStack: top returns base Focus after init" {
+    var s = FocusStack.init(Focus.init(3));
+    try std.testing.expectEqual(@as(usize, 0), s.top().active());
+}
+
+test "FocusStack: push installs new Focus, pop restores previous" {
+    var s = FocusStack.init(Focus.init(3));
+    s.top().next();
+    try std.testing.expectEqual(@as(usize, 1), s.top().active());
+    try s.push(Focus.init(2));
+    try std.testing.expectEqual(@as(usize, 0), s.top().active());
+    s.pop();
+    try std.testing.expectEqual(@as(usize, 1), s.top().active());
+}
+
+test "FocusStack: pop on base Focus is a no-op" {
+    var s = FocusStack.init(Focus.init(2));
+    s.pop();
+    try std.testing.expectEqual(@as(usize, 1), s.depth);
+}
+
+test "FocusStack: push past capacity returns Overflow" {
+    var s = FocusStack.init(Focus.init(1));
+    var i: usize = 0;
+    while (i < 7) : (i += 1) try s.push(Focus.init(1));
+    try std.testing.expectError(error.Overflow, s.push(Focus.init(1)));
+}

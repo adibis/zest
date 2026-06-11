@@ -21,6 +21,7 @@ pub const solve = @import("layout/solver.zig").solve;
 pub const Box = @import("widgets/box.zig").Box;
 pub const WindowsType = @import("widgets/box.zig").WindowsType;
 pub const Focus = @import("core/focus.zig").Focus;
+pub const FocusStack = @import("core/focus.zig").FocusStack;
 
 test {
     // Importing a file in a test block pulls its test blocks into the test
