@@ -128,6 +128,30 @@ pub fn PanelsType(comptime Blueprint: type) type {
     return @Struct(.auto, null, &names, &types, &attrs);
 }
 
+/// For each leaf pane, returns its focusable index within its own domain.
+/// The index is the count of focusable panes with the same domain id that
+/// appear before this pane in depth-first order. Non-focusable panes get 0.
+/// This is the value compared against FocusStack.activeIndex() for the
+/// corresponding domain, so it must be computed per-domain, not globally.
+fn leafDomainFocusableIndices(comptime Blueprint: type) [leafCount(Blueprint)]usize {
+    const N          = comptime leafCount(Blueprint);
+    const domains    = comptime leafDomains(Blueprint);
+    const focusables = comptime leafFocusable(Blueprint);
+    var result: [N]usize = undefined;
+    inline for (0..N) |i| {
+        comptime var count: usize = 0;
+        if (comptime focusables[i]) {
+            inline for (0..i) |j| {
+                if (comptime (focusables[j] and std.mem.eql(u8, domains[j], domains[i]))) {
+                    count += 1;
+                }
+            }
+        }
+        result[i] = count;
+    }
+    return result;
+}
+
 /// Returns the number of focusable panes whose nearest enclosing domain id
 /// matches target_domain_id. Use this to size a per-domain FocusStack when
 /// the blueprint contains domain() nodes.
@@ -170,7 +194,17 @@ pub const Layout = struct {
 
     /// Solves Blueprint's layout within bounds and returns a named struct of
     /// Panels, one per leaf pane. Each Panel carries the resolved vaxis.Window
-    /// and a focused bool stamped from ctx.focus (false when focus is null).
+    /// and a focused bool stamped from ctx.
+    ///
+    /// ctx is anytype and accepts two forms:
+    ///
+    ///   No domains  — pass .{ .focus = &state.focus } (or .{} for no focus)
+    ///   With domains — pass a struct with one ?*const FocusStack field per
+    ///                  domain id declared in the blueprint, e.g.:
+    ///                  .{ .sidebar = &state.focus_sidebar, .main = &state.focus_main }
+    ///
+    /// Passing the wrong fields is a compile error. Each domain's focused bool
+    /// is computed against its own FocusStack, so Tab never crosses boundaries.
     /// If a pane declares `border = true`, the border is drawn immediately and
     /// the Panel's window is the inner content area. All geometry is
     /// stack-allocated — no allocator needed.
@@ -178,18 +212,35 @@ pub const Layout = struct {
         comptime Blueprint: type,
         root_win: vaxis.Window,
         bounds: Rect,
-        ctx: RenderContext,
+        ctx: anytype,
     ) PanelsType(Blueprint) {
         var rects: [leafCount(Blueprint)]Rect = undefined;
         solveInto(Blueprint, bounds, &rects);
-        const borders    = comptime leafBorders(Blueprint);
-        const focusables = comptime leafFocusable(Blueprint);
-        const ids        = comptime leafIds(Blueprint);
-        const active: ?usize = if (ctx.focus) |f| f.activeIndex() else null;
+        const borders      = comptime leafBorders(Blueprint);
+        const focusables   = comptime leafFocusable(Blueprint);
+        const ids          = comptime leafIds(Blueprint);
+        const domain_ids   = comptime leafDomains(Blueprint);
+        const domain_fidxs = comptime leafDomainFocusableIndices(Blueprint);
         var result: PanelsType(Blueprint) = undefined;
-        var focusable_i: usize = 0;
         inline for (ids, 0..) |id, i| {
             const r = rects[i];
+            const focused: bool = if (!focusables[i]) false else blk: {
+                const dom = domain_ids[i];
+                if (dom.len == 0) {
+                    // No enclosing domain — use ctx.focus when present.
+                    // ctx.focus is *FocusStack (not optional) when passed as &focus.
+                    const active: ?usize = if (@hasField(@TypeOf(ctx), "focus"))
+                        ctx.focus.activeIndex()
+                    else
+                        null;
+                    break :blk if (active) |a| a == domain_fidxs[i] else false;
+                } else {
+                    // Inside a domain — look up the per-domain FocusStack.
+                    const stack: ?*const FocusStack = @field(ctx, dom);
+                    const active = if (stack) |s| s.activeIndex() else null;
+                    break :blk if (active) |a| a == domain_fidxs[i] else false;
+                }
+            };
             @field(result, id) = Panel{
                 .win = root_win.child(.{
                     .x_off = @intCast(r.x),
@@ -198,10 +249,8 @@ pub const Layout = struct {
                     .height = r.height,
                     .border = if (borders[i]) .{ .where = .all } else .{},
                 }),
-                .focused = if (!focusables[i]) false
-                           else if (active) |a| a == focusable_i else false,
+                .focused = focused,
             };
-            if (focusables[i]) focusable_i += 1;
         }
         return result;
     }
@@ -387,6 +436,159 @@ test "Layout.panels: focus index maps to focusable panes only, skipping non-focu
     try std.testing.expect(!result.a.focused);
     try std.testing.expect(!result.chrome.focused);
     try std.testing.expect(result.b.focused);
+}
+
+test "Layout.panels: domain focus index stamps correct pane in each domain" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").hsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const FocusStack_ = @import("../core/focus.zig").FocusStack;
+    const Focus_ = @import("../core/focus.zig").Focus;
+
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "sidebar",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 25 },
+                .children  = &.{
+                    p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                },
+            }),
+            d(.{
+                .id        = "main",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "diff",   .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "cmdlog", .size = .{ .fixed = 5 }, .focusable = false }),
+                },
+            }),
+        },
+    });
+
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 40, .cols = 80, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const root_win = vaxis.Window{
+        .x_off = 0, .y_off = 0, .parent_x_off = 0, .parent_y_off = 0,
+        .width = screen.width, .height = screen.height, .screen = &screen,
+    };
+
+    var fs_sidebar = FocusStack_.init(Focus_.init(Layout.panelCountInDomain(B, "sidebar")));
+    var fs_main    = FocusStack_.init(Focus_.init(Layout.panelCountInDomain(B, "main")));
+
+    // Each domain stamps its own active pane independently.
+    // Both domains start at index 0 → files and diff are focused simultaneously.
+    var result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 },
+        .{ .sidebar = &fs_sidebar, .main = &fs_main });
+    try std.testing.expect(result.files.focused);
+    try std.testing.expect(!result.branches.focused);
+    try std.testing.expect(result.diff.focused);   // main domain also at index 0
+    try std.testing.expect(!result.cmdlog.focused); // non-focusable, always false
+
+    // Advancing sidebar to index 1 changes only the sidebar domain's stamp.
+    // Main domain is unchanged: diff remains focused.
+    fs_sidebar.set(1);
+    result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 },
+        .{ .sidebar = &fs_sidebar, .main = &fs_main });
+    try std.testing.expect(!result.files.focused);
+    try std.testing.expect(result.branches.focused);
+    try std.testing.expect(result.diff.focused);   // main domain untouched
+}
+
+test "Layout.panels: domain focus never bleeds across domain boundaries" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").hsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const FocusStack_ = @import("../core/focus.zig").FocusStack;
+    const Focus_ = @import("../core/focus.zig").Focus;
+
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "left",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 20 },
+                .children  = &.{
+                    p(.{ .id = "a", .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "b", .size = .{ .fraction = 1 } }),
+                },
+            }),
+            d(.{
+                .id        = "right",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "c", .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "dd", .size = .{ .fraction = 1 } }),
+                },
+            }),
+        },
+    });
+
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 40, .cols = 80, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const root_win = vaxis.Window{
+        .x_off = 0, .y_off = 0, .parent_x_off = 0, .parent_y_off = 0,
+        .width = screen.width, .height = screen.height, .screen = &screen,
+    };
+
+    // left domain index 1, right domain index 1 — each domain has its own active.
+    var fs_left  = FocusStack_.init(Focus_.init(Layout.panelCountInDomain(B, "left")));
+    var fs_right = FocusStack_.init(Focus_.init(Layout.panelCountInDomain(B, "right")));
+    fs_left.set(1);
+    fs_right.set(1);
+
+    const result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 },
+        .{ .left = &fs_left, .right = &fs_right });
+
+    // Only index-1 of each domain is focused; index-0 panes are not.
+    try std.testing.expect(!result.a.focused);
+    try std.testing.expect(result.b.focused);
+    try std.testing.expect(!result.c.focused);
+    try std.testing.expect(result.dd.focused);
+}
+
+test "Layout.panels: backward compat — blueprint without domains accepts ctx.focus" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const vs = @import("../layout/blueprint.zig").vsplit;
+    const FocusStack_ = @import("../core/focus.zig").FocusStack;
+    const Focus_ = @import("../core/focus.zig").Focus;
+
+    const B = vs(.{
+        .children = &.{
+            p(.{ .id = "top",    .size = .{ .fraction = 1 } }),
+            p(.{ .id = "bottom", .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 20, .cols = 80, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const root_win = vaxis.Window{
+        .x_off = 0, .y_off = 0, .parent_x_off = 0, .parent_y_off = 0,
+        .width = screen.width, .height = screen.height, .screen = &screen,
+    };
+
+    var focus = FocusStack_.init(Focus_.init(Layout.panelCount(B)));
+    var result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 20 },
+        .{ .focus = &focus });
+    try std.testing.expect(result.top.focused);
+    try std.testing.expect(!result.bottom.focused);
+
+    focus.set(1);
+    result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 20 },
+        .{ .focus = &focus });
+    try std.testing.expect(!result.top.focused);
+    try std.testing.expect(result.bottom.focused);
 }
 
 test "Layout.panelCountInDomain: counts only focusable panes in the named domain" {
