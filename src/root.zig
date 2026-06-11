@@ -18,6 +18,7 @@ pub const PanelSlot = @import("layout/slot.zig").PanelSlot;
 pub const pane = @import("layout/blueprint.zig").pane;
 pub const hsplit = @import("layout/blueprint.zig").hsplit;
 pub const vsplit = @import("layout/blueprint.zig").vsplit;
+pub const domain = @import("layout/blueprint.zig").domain;
 pub const solve = @import("layout/solver.zig").solve;
 pub const Layout = @import("widgets/box.zig").Layout;
 pub const PanelsType = @import("widgets/box.zig").PanelsType;
