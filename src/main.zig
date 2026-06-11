@@ -12,13 +12,13 @@ const zest = @import("zest");
 const layout = zest.box(.{
     .direction = .horizontal,
     .children = &.{
-        zest.slot(.{ .size = .{ .fixed = 30 }, .border = true }),
+        zest.slot(.{ .id = "sidebar", .size = .{ .fixed = 30 }, .border = true }),
         zest.box(.{
             .size = .{ .fraction = 1 },
             .direction = .vertical,
             .children = &.{
-                zest.slot(.{ .size = .{ .fixed = 3 }, .border = true }),
-                zest.slot(.{ .size = .{ .fraction = 1 }, .border = true }),
+                zest.slot(.{ .id = "header", .size = .{ .fixed = 3 }, .border = true }),
+                zest.slot(.{ .id = "body",   .size = .{ .fraction = 1 }, .border = true }),
             },
         }),
     },
@@ -36,15 +36,15 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
         .winsize => |ws| {
             const bounds = zest.Rect{ .x = 0, .y = 0, .width = ws.cols, .height = ws.rows };
             win.clear();
-            const wins = zest.Box.windows(layout, win, bounds, alloc) catch return .idle;
-            _ = wins[0].print(&.{.{ .text = "sidebar" }}, .{});
-            _ = wins[1].print(&.{.{ .text = "header" }}, .{});
+            const wins = zest.Box.windows(layout, win, bounds);
+            _ = wins.sidebar.print(&.{.{ .text = "sidebar" }}, .{});
+            _ = wins.header.print(&.{.{ .text = "header" }}, .{});
             const body_text = std.fmt.allocPrint(
                 alloc,
                 "body  ({d}x{d})  press 'q' to quit",
-                .{ wins[2].width, wins[2].height },
+                .{ wins.body.width, wins.body.height },
             ) catch return .idle;
-            _ = wins[2].print(&.{.{ .text = body_text }}, .{});
+            _ = wins.body.print(&.{.{ .text = body_text }}, .{});
             return .redraw;
         },
         .focus_in => {
