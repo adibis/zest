@@ -23,7 +23,7 @@ const layout = zest.vsplit(.{
                 zest.domain(.{
                     .id        = "sidebar",
                     .direction = zest.Direction.vertical,
-                    .size      = .{ .fixed = 25 },
+                    .size      = .{ .percent = 25 },
                     .children  = &.{
                         zest.pane(.{ .id = "files",    .size = .{ .fraction = 1 }, .border = true }),
                         zest.pane(.{ .id = "branches", .size = .{ .fraction = 1 }, .border = true }),
@@ -80,7 +80,7 @@ fn draw(state: *State, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateR
     _ = p.stash   .win.print(&.{.{ .text = panelLabel(alloc, "4 stash",    p.stash.focused)    }}, .{});
     _ = p.diff    .win.print(&.{.{ .text = panelLabel(alloc, "0 diff",     p.diff.focused)     }}, .{});
     _ = p.cmdlog  .win.print(&.{.{ .text = "command log" }}, .{});
-    _ = p.footer  .win.print(&.{.{ .text = "tab: cycle | 0–4: jump | ^W: switch | q: quit" }}, .{});
+    _ = p.footer  .win.print(&.{.{ .text = "tab: cycle | 0–4: jump | ^W: switch | q: quit | sidebar: 25% width" }}, .{});
 
     return .redraw;
 }
