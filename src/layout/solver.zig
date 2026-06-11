@@ -44,8 +44,9 @@ pub fn solve(
 
 /// Fills dst with Rects for every leaf slot under Blueprint, treating
 /// bounds as the root of this subtree. dst must be exactly
-/// leafCount(Blueprint) long — the public solve() guarantees this.
-fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
+/// leafCount(Blueprint) long. Prefer solve() when heap allocation is
+/// acceptable; call this directly with a stack buffer when it is not.
+pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
     if (@hasDecl(Blueprint, "is_slot")) {
         dst[0] = bounds;
         return;

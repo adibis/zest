@@ -19,6 +19,7 @@ pub const slot = @import("layout/blueprint.zig").slot;
 pub const box = @import("layout/blueprint.zig").box;
 pub const solve = @import("layout/solver.zig").solve;
 pub const Box = @import("widgets/box.zig").Box;
+pub const WindowsType = @import("widgets/box.zig").WindowsType;
 
 test {
     // Importing a file in a test block pulls its test blocks into the test
