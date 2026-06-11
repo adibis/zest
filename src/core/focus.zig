@@ -165,11 +165,10 @@ pub const FocusStack = struct {
         self.top().set(index);
     }
 
-    /// Convenience wrapper: returns true if the named slot is active on the top Focus.
-    /// Takes *FocusStack rather than *const because top() requires a mutable receiver.
-    /// TODO: make top() const-safe so this can take *const FocusStack.
-    pub fn is(self: *FocusStack, comptime id: [:0]const u8, comptime ids: []const [:0]const u8) bool {
-        return self.top().is(id, ids);
+    /// Returns true if the named slot is active on the top Focus.
+    pub fn is(self: *const FocusStack, comptime id: [:0]const u8, comptime ids: []const [:0]const u8) bool {
+        std.debug.assert(self.depth > 0);
+        return self.levels[self.depth - 1].is(id, ids);
     }
 };
 
