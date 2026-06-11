@@ -134,6 +134,9 @@ pub fn PanelsType(comptime Blueprint: type) type {
 /// This is the value compared against FocusStack.activeIndex() for the
 /// corresponding domain, so it must be computed per-domain, not globally.
 fn leafDomainFocusableIndices(comptime Blueprint: type) [leafCount(Blueprint)]usize {
+    // O(N²) over leaf count × per-domain string comparisons. N stays small
+    // for fixed layouts (typical: 5–20 panes), but the quota is generous.
+    @setEvalBranchQuota(100_000);
     const N          = comptime leafCount(Blueprint);
     const domains    = comptime leafDomains(Blueprint);
     const focusables = comptime leafFocusable(Blueprint);
