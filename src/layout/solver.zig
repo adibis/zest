@@ -77,6 +77,7 @@ pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
     // compile time — horizontal and vertical splits produce different machine
     // code with zero shared runtime overhead.
     const is_horiz = Blueprint.direction == .horizontal;
+    const main_axis_size = if (is_horiz) bounds.width else bounds.height;
     var cursor: u16 = 0;
     inline for (Blueprint.children, 0..) |Child, i| {
         switch (Child.size) {
@@ -90,7 +91,21 @@ pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
                 };
                 cursor +|= w;
             },
-            .fraction, .percent => {
+            .percent => |p| {
+                const w: u16 = @intCast(@min(
+                    @as(u32, main_axis_size) * p / 100,
+                    std.math.maxInt(u16),
+                ));
+                child_rects[i] = if (is_horiz) .{
+                    .x = bounds.x +| cursor, .y = bounds.y,
+                    .width = w,              .height = bounds.height,
+                } else .{
+                    .x = bounds.x,           .y = bounds.y +| cursor,
+                    .width = bounds.width,   .height = w,
+                };
+                cursor +|= w;
+            },
+            .fraction => {
                 child_rects[i] = if (is_horiz) .{
                     .x = bounds.x +| cursor, .y = bounds.y,
                     .width = 0,              .height = bounds.height,
@@ -175,7 +190,7 @@ test "solve: single pane returns bounds unchanged" {
     const bounds = Rect{ .x = 5, .y = 3, .width = 80, .height = 24 };
     const rects = try solve(arena.allocator(), S, bounds);
 
-    try std.testing.expectEqual(@as(usize, 1), rects.len);
+    try std.testing.expectEqual(1, rects.len);
     try std.testing.expectEqual(bounds, rects[0]);
 }
 
@@ -192,10 +207,10 @@ test "solve: hsplit with one fixed pane — placed at left edge" {
     const bounds = Rect{ .x = 0, .y = 0, .width = 80, .height = 24 };
     const rects = try solve(arena.allocator(), B, bounds);
 
-    try std.testing.expectEqual(@as(usize, 1), rects.len);
-    try std.testing.expectEqual(@as(u16, 0), rects[0].x);
-    try std.testing.expectEqual(@as(u16, 30), rects[0].width);
-    try std.testing.expectEqual(@as(u16, 24), rects[0].height);
+    try std.testing.expectEqual(1, rects.len);
+    try std.testing.expectEqual(0, rects[0].x);
+    try std.testing.expectEqual(30, rects[0].width);
+    try std.testing.expectEqual(24, rects[0].height);
 }
 
 test "solve: hsplit with two fixed panes — correct offsets, no overlap" {
@@ -214,11 +229,11 @@ test "solve: hsplit with two fixed panes — correct offsets, no overlap" {
     const bounds = Rect{ .x = 0, .y = 0, .width = 80, .height = 24 };
     const rects = try solve(arena.allocator(), B, bounds);
 
-    try std.testing.expectEqual(@as(usize, 2), rects.len);
-    try std.testing.expectEqual(@as(u16, 0), rects[0].x);
-    try std.testing.expectEqual(@as(u16, 20), rects[0].width);
-    try std.testing.expectEqual(@as(u16, 20), rects[1].x);
-    try std.testing.expectEqual(@as(u16, 30), rects[1].width);
+    try std.testing.expectEqual(2, rects.len);
+    try std.testing.expectEqual(0, rects[0].x);
+    try std.testing.expectEqual(20, rects[0].width);
+    try std.testing.expectEqual(20, rects[1].x);
+    try std.testing.expectEqual(30, rects[1].width);
 }
 
 test "solve: hsplit fixed + fraction — fraction gets remaining width" {
@@ -237,10 +252,10 @@ test "solve: hsplit fixed + fraction — fraction gets remaining width" {
     const bounds = Rect{ .x = 0, .y = 0, .width = 80, .height = 24 };
     const rects = try solve(arena.allocator(), B, bounds);
 
-    try std.testing.expectEqual(@as(usize, 2), rects.len);
-    try std.testing.expectEqual(@as(u16, 30), rects[0].width);
-    try std.testing.expectEqual(@as(u16, 30), rects[1].x);
-    try std.testing.expectEqual(@as(u16, 50), rects[1].width);
+    try std.testing.expectEqual(2, rects.len);
+    try std.testing.expectEqual(30, rects[0].width);
+    try std.testing.expectEqual(30, rects[1].x);
+    try std.testing.expectEqual(50, rects[1].width);
 }
 
 test "solve: hsplit fixed + fraction — fraction gets remaining width (variant)" {
@@ -258,9 +273,9 @@ test "solve: hsplit fixed + fraction — fraction gets remaining width (variant)
 
     const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 24 });
 
-    try std.testing.expectEqual(@as(u16, 20), rects[0].width);
-    try std.testing.expectEqual(@as(u16, 20), rects[1].x);
-    try std.testing.expectEqual(@as(u16, 60), rects[1].width);
+    try std.testing.expectEqual(20, rects[0].width);
+    try std.testing.expectEqual(20, rects[1].x);
+    try std.testing.expectEqual(60, rects[1].width);
 }
 
 test "solve: hsplit two equal fractions split remaining width evenly" {
@@ -278,10 +293,10 @@ test "solve: hsplit two equal fractions split remaining width evenly" {
 
     const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 24 });
 
-    try std.testing.expectEqual(@as(u16, 0), rects[0].x);
-    try std.testing.expectEqual(@as(u16, 40), rects[0].width);
-    try std.testing.expectEqual(@as(u16, 40), rects[1].x);
-    try std.testing.expectEqual(@as(u16, 40), rects[1].width);
+    try std.testing.expectEqual(0, rects[0].x);
+    try std.testing.expectEqual(40, rects[0].width);
+    try std.testing.expectEqual(40, rects[1].x);
+    try std.testing.expectEqual(40, rects[1].width);
 }
 
 test "solve: hsplit weighted fractions split proportionally" {
@@ -299,9 +314,9 @@ test "solve: hsplit weighted fractions split proportionally" {
 
     const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 90, .height = 24 });
 
-    try std.testing.expectEqual(@as(u16, 30), rects[0].width);
-    try std.testing.expectEqual(@as(u16, 30), rects[1].x);
-    try std.testing.expectEqual(@as(u16, 60), rects[1].width);
+    try std.testing.expectEqual(30, rects[0].width);
+    try std.testing.expectEqual(30, rects[1].x);
+    try std.testing.expectEqual(60, rects[1].width);
 }
 
 test "solve: vsplit with two fixed panes — correct y offsets, no overlap" {
@@ -319,11 +334,11 @@ test "solve: vsplit with two fixed panes — correct y offsets, no overlap" {
 
     const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
 
-    try std.testing.expectEqual(@as(u16, 0), rects[0].y);
-    try std.testing.expectEqual(@as(u16, 10), rects[0].height);
-    try std.testing.expectEqual(@as(u16, 10), rects[1].y);
-    try std.testing.expectEqual(@as(u16, 20), rects[1].height);
-    try std.testing.expectEqual(@as(u16, 80), rects[0].width);
+    try std.testing.expectEqual(0, rects[0].y);
+    try std.testing.expectEqual(10, rects[0].height);
+    try std.testing.expectEqual(10, rects[1].y);
+    try std.testing.expectEqual(20, rects[1].height);
+    try std.testing.expectEqual(80, rects[0].width);
 }
 
 test "solve: vsplit fixed + fraction gets remaining height" {
@@ -341,10 +356,10 @@ test "solve: vsplit fixed + fraction gets remaining height" {
 
     const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
 
-    try std.testing.expectEqual(@as(u16, 3), rects[0].height);
-    try std.testing.expectEqual(@as(u16, 3), rects[1].y);
-    try std.testing.expectEqual(@as(u16, 37), rects[1].height);
-    try std.testing.expectEqual(@as(u16, 80), rects[1].width);
+    try std.testing.expectEqual(3, rects[0].height);
+    try std.testing.expectEqual(3, rects[1].y);
+    try std.testing.expectEqual(37, rects[1].height);
+    try std.testing.expectEqual(80, rects[1].width);
 }
 
 test "solve: vsplit two equal fractions split height evenly" {
@@ -362,10 +377,10 @@ test "solve: vsplit two equal fractions split height evenly" {
 
     const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
 
-    try std.testing.expectEqual(@as(u16, 0), rects[0].y);
-    try std.testing.expectEqual(@as(u16, 20), rects[0].height);
-    try std.testing.expectEqual(@as(u16, 20), rects[1].y);
-    try std.testing.expectEqual(@as(u16, 20), rects[1].height);
+    try std.testing.expectEqual(0, rects[0].y);
+    try std.testing.expectEqual(20, rects[0].height);
+    try std.testing.expectEqual(20, rects[1].y);
+    try std.testing.expectEqual(20, rects[1].height);
 }
 
 test "solve: vsplit four equal fractions over indivisible height fills all space" {
@@ -388,13 +403,55 @@ test "solve: vsplit four equal fractions over indivisible height fills all space
 
     // All rows must be consumed: last pane ends exactly at y=39.
     const last = rects[3];
-    try std.testing.expectEqual(@as(u16, 39), last.y + last.height);
+    try std.testing.expectEqual(39, last.y + last.height);
     // First three panes each get floor(39/4) = 9 rows.
-    try std.testing.expectEqual(@as(u16, 9), rects[0].height);
-    try std.testing.expectEqual(@as(u16, 9), rects[1].height);
-    try std.testing.expectEqual(@as(u16, 9), rects[2].height);
+    try std.testing.expectEqual(9, rects[0].height);
+    try std.testing.expectEqual(9, rects[1].height);
+    try std.testing.expectEqual(9, rects[2].height);
     // Last pane absorbs the remainder: 39 - 27 = 12.
-    try std.testing.expectEqual(@as(u16, 12), rects[3].height);
+    try std.testing.expectEqual(12, rects[3].height);
+}
+
+test "solve: percent pane consumes its share of parent dimension" {
+    const p  = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
+        .children = &.{
+            p(.{ .size = .{ .percent = 25 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 24 });
+
+    // 25% of 80 = 20 cells; fraction gets the remaining 60.
+    try std.testing.expectEqual(20, rects[0].width);
+    try std.testing.expectEqual(20, rects[1].x);
+    try std.testing.expectEqual(60, rects[1].width);
+}
+
+test "solve: percent pane resolved before fraction — fraction sees reduced space" {
+    const p  = @import("blueprint.zig").pane;
+    const vs = @import("blueprint.zig").vsplit;
+    const B = vs(.{
+        .children = &.{
+            p(.{ .size = .{ .percent = 50 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
+
+    // 50% of 40 = 20 rows for percent pane; fraction absorbs the remaining 20.
+    try std.testing.expectEqual(20, rects[0].height);
+    try std.testing.expectEqual(20, rects[1].y);
+    try std.testing.expectEqual(20, rects[1].height);
 }
 
 test "solve: single pane preserves non-zero origin" {
@@ -407,7 +464,7 @@ test "solve: single pane preserves non-zero origin" {
     const bounds = Rect{ .x = 10, .y = 5, .width = 100, .height = 40 };
     const rects = try solve(arena.allocator(), S, bounds);
 
-    try std.testing.expectEqual(@as(usize, 1), rects.len);
+    try std.testing.expectEqual(1, rects.len);
     try std.testing.expectEqual(bounds, rects[0]);
 }
 
@@ -423,7 +480,7 @@ test "leafCount: domain node counts all leaf panes inside it" {
             p(.{ .size = .{ .fraction = 1 } }),
         },
     });
-    try std.testing.expectEqual(@as(usize, 2), leafCount(B));
+    try std.testing.expectEqual(2, leafCount(B));
 }
 
 test "focusableLeafCount: domain node counts only focusable panes" {
@@ -438,7 +495,7 @@ test "focusableLeafCount: domain node counts only focusable panes" {
             p(.{ .size = .{ .fraction = 1 }, .focusable = false }),
         },
     });
-    try std.testing.expectEqual(@as(usize, 1), focusableLeafCount(B));
+    try std.testing.expectEqual(1, focusableLeafCount(B));
 }
 
 test "solve: domain node produces same geometry as equivalent vsplit" {
@@ -497,19 +554,19 @@ test "solve: nested hsplit/vsplit — sidebar + header/body produces 3 leaf rect
 
     const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 });
 
-    try std.testing.expectEqual(@as(usize, 3), rects.len);
+    try std.testing.expectEqual(3, rects.len);
     // sidebar: x=0, full height, width=20
-    try std.testing.expectEqual(@as(u16, 0),  rects[0].x);
-    try std.testing.expectEqual(@as(u16, 20), rects[0].width);
-    try std.testing.expectEqual(@as(u16, 40), rects[0].height);
+    try std.testing.expectEqual(0,  rects[0].x);
+    try std.testing.expectEqual(20, rects[0].width);
+    try std.testing.expectEqual(40, rects[0].height);
     // header: starts at x=20, y=0, fills remaining width (60), fixed height 5
-    try std.testing.expectEqual(@as(u16, 20), rects[1].x);
-    try std.testing.expectEqual(@as(u16, 0),  rects[1].y);
-    try std.testing.expectEqual(@as(u16, 60), rects[1].width);
-    try std.testing.expectEqual(@as(u16, 5),  rects[1].height);
+    try std.testing.expectEqual(20, rects[1].x);
+    try std.testing.expectEqual(0,  rects[1].y);
+    try std.testing.expectEqual(60, rects[1].width);
+    try std.testing.expectEqual(5,  rects[1].height);
     // body: starts at x=20, y=5, fills remaining width (60) and height (35)
-    try std.testing.expectEqual(@as(u16, 20), rects[2].x);
-    try std.testing.expectEqual(@as(u16, 5),  rects[2].y);
-    try std.testing.expectEqual(@as(u16, 60), rects[2].width);
-    try std.testing.expectEqual(@as(u16, 35), rects[2].height);
+    try std.testing.expectEqual(20, rects[2].x);
+    try std.testing.expectEqual(5,  rects[2].y);
+    try std.testing.expectEqual(60, rects[2].width);
+    try std.testing.expectEqual(35, rects[2].height);
 }
