@@ -128,11 +128,37 @@ pub fn PanelsType(comptime Blueprint: type) type {
     return @Struct(.auto, null, &names, &types, &attrs);
 }
 
+/// Returns the number of focusable panes whose nearest enclosing domain id
+/// matches target_domain_id. Use this to size a per-domain FocusStack when
+/// the blueprint contains domain() nodes.
+fn focusableCountInDomain(comptime Blueprint: type, comptime target: [:0]const u8) usize {
+    const N        = comptime leafCount(Blueprint);
+    const domains  = comptime leafDomains(Blueprint);
+    const focusables = comptime leafFocusable(Blueprint);
+    comptime var count: usize = 0;
+    inline for (0..N) |i| {
+        if (focusables[i] and comptime std.mem.eql(u8, domains[i], target)) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
 pub const Layout = struct {
     /// Returns the number of focusable leaf panes in Blueprint — use this to
     /// initialize a FocusStack so Tab cycling never lands on display-only panes.
     pub fn panelCount(comptime Blueprint: type) usize {
         return focusableLeafCount(Blueprint);
+    }
+
+    /// Returns the number of focusable panes inside the named domain. Use this
+    /// to initialize a per-domain FocusStack when the blueprint has domain() nodes.
+    ///
+    ///   state.focus_sidebar = FocusStack.init(Focus.init(
+    ///       Layout.panelCountInDomain(layout, "sidebar"),
+    ///   ));
+    pub fn panelCountInDomain(comptime Blueprint: type, comptime domain_id: [:0]const u8) usize {
+        return focusableCountInDomain(Blueprint, domain_id);
     }
 
     /// Returns a comptime array of leaf pane IDs in depth-first order.
@@ -361,6 +387,54 @@ test "Layout.panels: focus index maps to focusable panes only, skipping non-focu
     try std.testing.expect(!result.a.focused);
     try std.testing.expect(!result.chrome.focused);
     try std.testing.expect(result.b.focused);
+}
+
+test "Layout.panelCountInDomain: counts only focusable panes in the named domain" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").hsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "sidebar",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 25 },
+                .children  = &.{
+                    p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "commits",  .size = .{ .fraction = 1 } }),
+                },
+            }),
+            d(.{
+                .id        = "main",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "diff",   .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "cmdlog", .size = .{ .fixed = 5 }, .focusable = false }),
+                },
+            }),
+        },
+    });
+    try std.testing.expectEqual(@as(usize, 3), Layout.panelCountInDomain(B, "sidebar"));
+    try std.testing.expectEqual(@as(usize, 1), Layout.panelCountInDomain(B, "main"));
+}
+
+test "Layout.panelCountInDomain: non-focusable panes inside domain are excluded" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const B = d(.{
+        .id        = "col",
+        .direction = Direction.vertical,
+        .children  = &.{
+            p(.{ .id = "a",      .size = .{ .fraction = 1 } }),
+            p(.{ .id = "chrome", .size = .{ .fixed = 1 }, .focusable = false }),
+            p(.{ .id = "b",      .size = .{ .fraction = 1 } }),
+        },
+    });
+    try std.testing.expectEqual(@as(usize, 2), Layout.panelCountInDomain(B, "col"));
 }
 
 test "leafDomains: pane outside any domain gets empty string" {
