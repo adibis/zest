@@ -8,6 +8,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const FrameArena = @import("memory.zig").FrameArena;
+const FocusStack = @import("focus.zig").FocusStack;
 
 pub const Event = union(enum) {
     key_press: vaxis.Key,
@@ -25,6 +26,7 @@ pub const App = struct {
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
     frame_arena: FrameArena,
+    last_winsize: ?vaxis.Winsize = null,
 
     /// tty_buf is a caller-owned byte slice used as the TTY's write buffer.
     /// It must stay alive for the lifetime of the App. We take it from the
@@ -61,13 +63,13 @@ pub const App = struct {
     /// `update` receives the event, the current root window, and a per-frame
     /// allocator (reset at the start of each frame). Return `.quit` to exit.
     ///
-    /// `ctx` is `anytype` — Zig resolves the concrete type at each call site
-    /// and generates a specialised version of run(). `comptime update` means
-    /// the function pointer is resolved at compile time, enabling inlining
-    /// with no indirect call overhead in the render loop.
+    /// `focus` is a pointer-to-pointer so multi-window apps can redirect it:
+    /// keep one FocusStack per window, store `var active: *FocusStack` in your
+    /// state, and reassign it in `update` when switching windows.
     pub fn run(
         self: *App,
         ctx: anytype,
+        focus: **FocusStack,
         comptime update: fn (@TypeOf(ctx), Event, vaxis.Window, std.mem.Allocator) UpdateResult,
     ) !void {
         // loop is created here, not stored on App, because vaxis.Loop stores
@@ -88,7 +90,25 @@ pub const App = struct {
             self.frame_arena.reset();
 
             if (event == .winsize) {
+                self.last_winsize = event.winsize;
                 try self.vx.resize(self.alloc, self.tty.writer(), event.winsize);
+            }
+
+            // Tab and Shift-Tab are consumed by the framework: they advance or
+            // retreat focus, then re-fire the last winsize event so the update
+            // function re-renders with the new focus state.
+            if (event == .key_press) {
+                const key = event.key_press;
+                const is_tab       = key.matches(vaxis.Key.tab, .{});
+                const is_shift_tab = key.matches(vaxis.Key.tab, .{ .shift = true });
+                if ((is_tab or is_shift_tab) and self.last_winsize != null) {
+                    if (is_tab) focus.*.top().next() else focus.*.top().prev();
+                    const win = self.vx.window();
+                    if (update(ctx, .{ .winsize = self.last_winsize.? }, win, self.frame_arena.allocator()) != .quit) {
+                        try self.vx.render(self.tty.writer());
+                    }
+                    continue;
+                }
             }
 
             const win = self.vx.window();

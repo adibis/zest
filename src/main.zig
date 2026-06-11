@@ -8,6 +8,8 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const zest = @import("zest");
 
+const focusable = &.{ "sidebar", "header", "body" };
+
 // Screen layout: fixed sidebar | vertical split (fixed header / body).
 const layout = zest.box(.{
     .direction = .horizontal,
@@ -24,10 +26,11 @@ const layout = zest.box(.{
     },
 });
 
-const State = struct {};
+const State = struct {
+    focus: zest.FocusStack = zest.FocusStack.init(zest.Focus.init(3)),
+};
 
 fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateResult {
-    _ = state;
     switch (event) {
         .key_press => |key| {
             if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
@@ -37,12 +40,12 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
             const bounds = zest.Rect{ .x = 0, .y = 0, .width = ws.cols, .height = ws.rows };
             win.clear();
             const wins = zest.Box.windows(layout, win, bounds);
-            _ = wins.sidebar.print(&.{.{ .text = "sidebar" }}, .{});
-            _ = wins.header.print(&.{.{ .text = "header" }}, .{});
+            _ = wins.sidebar.print(&.{.{ .text = if (state.focus.is("sidebar", focusable)) "sidebar [*]" else "sidebar" }}, .{});
+            _ = wins.header.print(&.{.{ .text = if (state.focus.is("header",  focusable)) "header [*]"  else "header"  }}, .{});
             const body_text = std.fmt.allocPrint(
                 alloc,
-                "body  ({d}x{d})  press 'q' to quit",
-                .{ wins.body.width, wins.body.height },
+                "{s}  ({d}x{d})  tab to cycle focus  q to quit",
+                .{ if (state.focus.is("body", focusable)) "body [*]" else "body", wins.body.width, wins.body.height },
             ) catch return .idle;
             _ = wins.body.print(&.{.{ .text = body_text }}, .{});
             return .redraw;
@@ -61,5 +64,6 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     var state: State = .{};
-    try app.run(&state, update);
+    var active_focus: *zest.FocusStack = &state.focus;
+    try app.run(&state, &active_focus, update);
 }
