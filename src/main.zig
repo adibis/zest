@@ -3,12 +3,13 @@
 //! Panels 1–4 (files/branches/commits/stash) form the repo sidebar — one layout
 //! with its own FocusStack. Tab cycles through them; 1–4 jump directly.
 //!
-//! The diff view (panel 0) is a separate layout with its own FocusStack. Press 0
+//! The diff area (panel 0) is a separate layout with its own FocusStack. Press 0
 //! to shift focus there. Because it lives in a different layout, Tab never crosses
 //! into it — the layout boundary is the focus boundary.
 //!
-//! Command log and footer are passed null focus: they are display-only regions
-//! that can never be interactive, with no special pane flags needed.
+//! The command log is declared focusable = false inside layout_diff_area. The
+//! solver distributes its fixed height automatically and Layout.panelCount()
+//! excludes it, so no null-focus plumbing or manual height arithmetic is needed.
 
 const std = @import("std");
 const vaxis = @import("vaxis");
@@ -24,12 +25,18 @@ const layout_repo = zest.vsplit(.{
     },
 });
 
-// Right panel: diff view (panel 0). Separate layout so Tab never reaches it.
-const layout_diff = zest.pane(.{ .id = "diff", .size = .{ .fraction = 1 }, .border = true });
+// Right column: diff view above the command log. The command log is declared
+// focusable = false — Layout.panelCount() excludes it so the FocusStack only
+// sees diff, and its height is distributed by the solver automatically.
+const layout_diff_area = zest.vsplit(.{
+    .children = &.{
+        zest.pane(.{ .id = "diff",   .size = .{ .fraction = 1 }, .border = true }),
+        zest.pane(.{ .id = "cmdlog", .size = .{ .fixed = 5 },    .border = true, .focusable = false }),
+    },
+});
 
-// Bottom areas: display only. Passed null focus at render time — never interactive.
-const layout_cmdlog = zest.pane(.{ .id = "log",    .size = .{ .fixed = 5 }, .border = true });
-const layout_footer = zest.pane(.{ .id = "footer", .size = .{ .fixed = 1 } });
+// Footer: display only. Non-focusable declared in the blueprint.
+const layout_footer = zest.pane(.{ .id = "footer", .size = .{ .fixed = 1 }, .focusable = false });
 
 const ActiveWindow = enum { repo, diff };
 
@@ -50,28 +57,22 @@ fn draw(state: *State, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateR
     win.clear();
 
     const sidebar_w: u16 = 25;
-    const cmdlog_h:  u16 = 5;
     const footer_h:  u16 = 1;
-    const col_h:     u16 = win.height -| footer_h;       // sidebar + right column height
-    const diff_h:    u16 = col_h      -| cmdlog_h;       // diff sits above cmdlog
+    const col_h:     u16 = win.height -| footer_h;
     const diff_x:    u16 = sidebar_w;
     const diff_w:    u16 = win.width  -| sidebar_w;
 
     const repo_active = state.active == .repo;
 
-    // Sidebar spans the full column height — cmdlog does not push it down.
+    // Sidebar spans the full column height.
     const repo = zest.Layout.panels(layout_repo, win,
-        .{ .x = 0,      .y = 0,      .width = sidebar_w, .height = col_h  },
+        .{ .x = 0,      .y = 0,     .width = sidebar_w, .height = col_h },
         .{ .focus = if (repo_active) &state.focus_repo else null });
 
-    const diff = zest.Layout.panels(layout_diff, win,
-        .{ .x = diff_x, .y = 0,      .width = diff_w,    .height = diff_h },
+    // Diff area: solver splits col_h between diff (fraction) and cmdlog (fixed 5).
+    const right = zest.Layout.panels(layout_diff_area, win,
+        .{ .x = diff_x, .y = 0,     .width = diff_w,    .height = col_h },
         .{ .focus = if (!repo_active) &state.focus_diff else null });
-
-    // Cmdlog lives in the right column, below diff.
-    const cmd = zest.Layout.panels(layout_cmdlog, win,
-        .{ .x = diff_x, .y = diff_h, .width = diff_w,    .height = cmdlog_h },
-        .{ .focus = null });
 
     const ftr = zest.Layout.panels(layout_footer, win,
         .{ .x = 0, .y = col_h, .width = win.width, .height = footer_h },
@@ -82,9 +83,9 @@ fn draw(state: *State, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateR
     _ = repo.commits .win.print(&.{.{ .text = panelLabel(alloc, "3 commits",  repo.commits.focused,  repo_active) }}, .{});
     _ = repo.stash   .win.print(&.{.{ .text = panelLabel(alloc, "4 stash",    repo.stash.focused,    repo_active) }}, .{});
 
-    _ = diff.diff.win.print(&.{.{ .text = panelLabel(alloc, "0 diff", diff.diff.focused, !repo_active) }}, .{});
+    _ = right.diff  .win.print(&.{.{ .text = panelLabel(alloc, "0 diff", right.diff.focused, !repo_active) }}, .{});
+    _ = right.cmdlog.win.print(&.{.{ .text = "command log" }}, .{});
 
-    _ = cmd.log   .win.print(&.{.{ .text = "command log" }}, .{});
     _ = ftr.footer.win.print(&.{.{ .text = "tab: cycle  1-4: jump  0: diff  q: quit" }}, .{});
 
     return .redraw;
@@ -124,8 +125,8 @@ pub fn main(init: std.process.Init) !void {
 
     var state: State = undefined;
     state.focus_repo  = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCount(layout_repo)));
-    state.focus_diff  = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCount(layout_diff)));
-    state.active       = .repo;
+    state.focus_diff  = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCount(layout_diff_area)));
+    state.active      = .repo;
     state.active_focus = &state.focus_repo;
 
     try app.run(&state, &state.active_focus, update);
