@@ -126,25 +126,26 @@ test "Focus: set() is no-op when count is 0" {
 /// pointer in your state. Point it at the active window's stack; App.run() receives
 /// **FocusStack and always operates on whatever it currently points to.
 pub const FocusStack = struct {
-    rings: [8]Focus = undefined,
-    depth: usize = 0,
+    levels: [8]Focus,
+    depth: usize,
 
     pub fn init(base: Focus) FocusStack {
-        var s = FocusStack{};
-        s.rings[0] = base;
+        var s: FocusStack = undefined;
+        s.levels[0] = base;
         s.depth = 1;
         return s;
     }
 
     /// Returns a pointer to the active (top) Focus.
     pub fn top(self: *FocusStack) *Focus {
-        return &self.rings[self.depth - 1];
+        std.debug.assert(self.depth > 0);
+        return &self.levels[self.depth - 1];
     }
 
     /// Pushes a new Focus onto the stack. Returns error.Overflow if full.
     pub fn push(self: *FocusStack, focus: Focus) error{Overflow}!void {
-        if (self.depth >= self.rings.len) return error.Overflow;
-        self.rings[self.depth] = focus;
+        if (self.depth >= self.levels.len) return error.Overflow;
+        self.levels[self.depth] = focus;
         self.depth += 1;
     }
 
