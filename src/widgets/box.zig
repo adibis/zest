@@ -27,12 +27,6 @@ pub const Panel = struct {
     focused: bool,
 };
 
-/// Per-frame render context passed to Layout.panels(). Fields are additive —
-/// adding theme or other state here does not change existing call sites.
-pub const RenderContext = struct {
-    focus: ?*const FocusStack = null,
-};
-
 /// Walks the blueprint tree and returns a comptime array of focusable flags,
 /// one per leaf pane, in the same depth-first left-to-right order as solve().
 fn leafFocusable(comptime Blueprint: type) [leafCount(Blueprint)]bool {
