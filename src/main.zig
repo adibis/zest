@@ -16,6 +16,7 @@ const zest = @import("zest");
 
 const layout = zest.vsplit(.{
     .children = &.{
+        zest.pane(.{ .id = "header", .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
         zest.hsplit(.{
             .size     = .{ .fraction = 1 },
             .children = &.{
@@ -66,17 +67,20 @@ fn panelLabel(alloc: std.mem.Allocator, name: []const u8, focused: bool) []const
 fn draw(state: *State, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateResult {
     win.clear();
 
+    const sidebar_focus: ?*zest.FocusStack = if (state.active_focus == &state.focus_sidebar) &state.focus_sidebar else null;
+    const main_focus:    ?*zest.FocusStack = if (state.active_focus == &state.focus_main)    &state.focus_main    else null;
     const p = zest.Layout.panels(layout, win,
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
-        .{ .sidebar = &state.focus_sidebar, .main = &state.focus_main });
+        .{ .sidebar = sidebar_focus, .main = main_focus });
 
+    _ = p.header  .win.print(&.{.{ .text = "zest demo" }}, .{});
     _ = p.files   .win.print(&.{.{ .text = panelLabel(alloc, "1 files",    p.files.focused)    }}, .{});
     _ = p.branches.win.print(&.{.{ .text = panelLabel(alloc, "2 branches", p.branches.focused) }}, .{});
     _ = p.commits .win.print(&.{.{ .text = panelLabel(alloc, "3 commits",  p.commits.focused)  }}, .{});
     _ = p.stash   .win.print(&.{.{ .text = panelLabel(alloc, "4 stash",    p.stash.focused)    }}, .{});
     _ = p.diff    .win.print(&.{.{ .text = panelLabel(alloc, "0 diff",     p.diff.focused)     }}, .{});
     _ = p.cmdlog  .win.print(&.{.{ .text = "command log" }}, .{});
-    _ = p.footer  .win.print(&.{.{ .text = "tab: cycle  0–4: jump  q: quit" }}, .{});
+    _ = p.footer  .win.print(&.{.{ .text = "tab: cycle | 0–4: jump | ^W: switch | q: quit" }}, .{});
 
     return .redraw;
 }
@@ -85,6 +89,13 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
     switch (event) {
         .key_press => |key| {
             if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
+            if (key.matches('w', .{ .ctrl = true })) {
+                state.active_focus = if (state.active_focus == &state.focus_sidebar)
+                    &state.focus_main
+                else
+                    &state.focus_sidebar;
+                return draw(state, win, alloc);
+            }
             switch (key.codepoint) {
                 '0' => {
                     state.active_focus = &state.focus_main;
