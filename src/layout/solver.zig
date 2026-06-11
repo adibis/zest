@@ -16,28 +16,28 @@ pub fn focusableLeafCount(comptime Blueprint: type) usize {
     if (@hasDecl(Blueprint, "is_pane")) {
         return if (Blueprint.focusable) 1 else 0;
     }
-    if (@hasDecl(Blueprint, "is_split")) {
+    if (@hasDecl(Blueprint, "is_split") or @hasDecl(Blueprint, "is_domain")) {
         var count: usize = 0;
         inline for (Blueprint.children) |Child| {
             count += comptime focusableLeafCount(Child);
         }
         return count;
     }
-    @compileError("Blueprint must be produced by pane(), hsplit(), or vsplit()");
+    @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
 }
 
 /// Returns the total number of leaf panes in Blueprint's tree at comptime.
 /// The result is used to allocate exactly the right slice before recursing.
 pub fn leafCount(comptime Blueprint: type) usize {
     if (@hasDecl(Blueprint, "is_pane")) return 1;
-    if (@hasDecl(Blueprint, "is_split")) {
+    if (@hasDecl(Blueprint, "is_split") or @hasDecl(Blueprint, "is_domain")) {
         var count: usize = 0;
         inline for (Blueprint.children) |Child| {
             count += comptime leafCount(Child);
         }
         return count;
     }
-    @compileError("Blueprint must be produced by pane(), hsplit(), or vsplit()");
+    @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
 }
 
 /// Resolves a comptime layout blueprint into a flat slice of Rects.
@@ -53,8 +53,8 @@ pub fn solve(
     comptime Blueprint: type,
     bounds: Rect,
 ) ![]Rect {
-    if (!@hasDecl(Blueprint, "is_pane") and !@hasDecl(Blueprint, "is_split"))
-        @compileError("solve: Blueprint must be a type returned by pane(), hsplit(), or vsplit()");
+    if (!@hasDecl(Blueprint, "is_pane") and !@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
+        @compileError("solve: Blueprint must be a type returned by pane(), hsplit(), vsplit(), or domain()");
     const rects = try allocator.alloc(Rect, leafCount(Blueprint));
     solveInto(Blueprint, bounds, rects);
     return rects;
@@ -409,6 +409,70 @@ test "solve: single pane preserves non-zero origin" {
 
     try std.testing.expectEqual(@as(usize, 1), rects.len);
     try std.testing.expectEqual(bounds, rects[0]);
+}
+
+test "leafCount: domain node counts all leaf panes inside it" {
+    const p  = @import("blueprint.zig").pane;
+    const d  = @import("blueprint.zig").domain;
+    const Direction = @import("slot.zig").Direction;
+    const B = d(.{
+        .id        = "sidebar",
+        .direction = Direction.vertical,
+        .children  = &.{
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+    try std.testing.expectEqual(@as(usize, 2), leafCount(B));
+}
+
+test "focusableLeafCount: domain node counts only focusable panes" {
+    const p  = @import("blueprint.zig").pane;
+    const d  = @import("blueprint.zig").domain;
+    const Direction = @import("slot.zig").Direction;
+    const B = d(.{
+        .id        = "sidebar",
+        .direction = Direction.vertical,
+        .children  = &.{
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 }, .focusable = false }),
+        },
+    });
+    try std.testing.expectEqual(@as(usize, 1), focusableLeafCount(B));
+}
+
+test "solve: domain node produces same geometry as equivalent vsplit" {
+    const p  = @import("blueprint.zig").pane;
+    const d  = @import("blueprint.zig").domain;
+    const vs = @import("blueprint.zig").vsplit;
+    const Direction = @import("slot.zig").Direction;
+
+    const WithDomain = d(.{
+        .id        = "col",
+        .direction = Direction.vertical,
+        .size      = .{ .fixed = 25 },
+        .children  = &.{
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+    const WithSplit = vs(.{
+        .size     = .{ .fixed = 25 },
+        .children = &.{
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const bounds = Rect{ .x = 0, .y = 0, .width = 25, .height = 40 };
+    const dr = try solve(arena.allocator(), WithDomain, bounds);
+    const sr = try solve(arena.allocator(), WithSplit,  bounds);
+
+    try std.testing.expectEqual(sr[0], dr[0]);
+    try std.testing.expectEqual(sr[1], dr[1]);
 }
 
 test "solve: nested hsplit/vsplit — sidebar + header/body produces 3 leaf rects" {

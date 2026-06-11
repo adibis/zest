@@ -95,6 +95,27 @@ pub fn vsplit(comptime opts: anytype) type {
     return splitImpl(.vertical, opts);
 }
 
+/// Returns a comptime focus-domain descriptor.
+///
+/// A domain node is geometrically identical to a split — it has a direction,
+/// size, and children, and produces no Panel of its own. The difference is the
+/// comptime id field, which marks a focus boundary: Tab cycling is constrained
+/// to the focusable panes within a single domain. Layout.panels() accepts one
+/// FocusStack per domain id declared in the blueprint.
+///
+/// opts is anytype for the same reason as hsplit/vsplit: children is a
+/// *const [N]type whose length N varies per call site. direction and id
+/// are required fields; size defaults to fraction(1) when omitted.
+pub fn domain(comptime opts: anytype) type {
+    return struct {
+        pub const is_domain                = true;
+        pub const id:        [:0]const u8  = opts.id;
+        pub const size:      Size          = if (@hasField(@TypeOf(opts), "size")) optsToSize(opts.size) else .{ .fraction = 1 };
+        pub const direction: Direction     = opts.direction;
+        pub const children                 = opts.children;
+    };
+}
+
 test "pane: focusable defaults to true" {
     const S = pane(.{ .size = .{ .fixed = 30 } });
     try std.testing.expect(S.focusable);
@@ -197,4 +218,59 @@ test "hsplit: explicit size is preserved on the returned type" {
         .children = &.{pane(.{ .size = .{ .fixed = 30 } })},
     });
     try std.testing.expectEqual(@as(u16, 40), B.size.fixed);
+}
+
+test "domain: produced type has is_domain marker" {
+    const B = domain(.{
+        .id        = "sidebar",
+        .direction = Direction.vertical,
+        .children  = &.{pane(.{ .size = .{ .fraction = 1 } })},
+    });
+    try std.testing.expect(@hasDecl(B, "is_domain"));
+}
+
+test "domain: id is preserved on the returned type" {
+    const B = domain(.{
+        .id        = "sidebar",
+        .direction = Direction.vertical,
+        .children  = &.{pane(.{ .size = .{ .fraction = 1 } })},
+    });
+    try std.testing.expectEqualStrings("sidebar", B.id);
+}
+
+test "domain: direction is preserved on the returned type" {
+    const B = domain(.{
+        .id        = "nav",
+        .direction = Direction.horizontal,
+        .children  = &.{pane(.{ .size = .{ .fraction = 1 } })},
+    });
+    try std.testing.expectEqual(Direction.horizontal, B.direction);
+}
+
+test "domain: size defaults to fraction(1) when omitted" {
+    const B = domain(.{
+        .id        = "nav",
+        .direction = Direction.vertical,
+        .children  = &.{pane(.{ .size = .{ .fraction = 1 } })},
+    });
+    try std.testing.expectEqual(@as(u16, 1), B.size.fraction);
+}
+
+test "domain: explicit size is preserved on the returned type" {
+    const B = domain(.{
+        .id        = "nav",
+        .direction = Direction.vertical,
+        .size      = .{ .fixed = 25 },
+        .children  = &.{pane(.{ .size = .{ .fraction = 1 } })},
+    });
+    try std.testing.expectEqual(@as(u16, 25), B.size.fixed);
+}
+
+test "domain: children are identifiable as panes" {
+    const B = domain(.{
+        .id        = "main",
+        .direction = Direction.vertical,
+        .children  = &.{pane(.{ .size = .{ .fixed = 10 } })},
+    });
+    try std.testing.expect(@hasDecl(B.children[0], "is_pane"));
 }
