@@ -120,6 +120,16 @@ fn leafDomains(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
 pub fn PanelsType(comptime Blueprint: type) type {
     const ids = comptime leafIds(Blueprint);
     const N = ids.len;
+    // Detect duplicate pane ids at compile time. Two panes with the same id
+    // would silently produce a struct where the second field shadows the first,
+    // making one pane permanently unreachable. O(N²) but N is always small.
+    inline for (0..N) |i| {
+        inline for (i + 1..N) |j| {
+            if (comptime std.mem.eql(u8, ids[i], ids[j])) {
+                @compileError("duplicate pane id '" ++ ids[i] ++ "' in blueprint");
+            }
+        }
+    }
     var names: [N][]const u8 = undefined;
     var types: [N]type = undefined;
     var attrs: [N]std.builtin.Type.StructField.Attributes = undefined;
