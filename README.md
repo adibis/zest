@@ -38,13 +38,17 @@ All memory allocated during a render pass lives in a frame-scoped arena that is 
 
 ---
 
+## Demo
+
+![Zest demo — three bordered panels with named layout](docs/img/demo.png)
+
 ## Roadmap
 
 | Milestone | Scope | Status |
 |---|---|---|
-| 1 — Foundation | libvaxis wiring, event loop, frame arena, resize handling | 🔲 Planned |
-| 2 — Layout Engine | Layout types, recursive solver, Box compositor widget | 🔲 Planned |
-| 3 — Focus & Events | Focus ring, modal stack, event dispatch to widgets | 🔲 Planned |
+| 1 — Foundation | libvaxis wiring, event loop, frame arena, resize handling | ✅ Complete |
+| 2 — Layout Engine | Layout types, recursive solver, Box compositor, named windows | ✅ Complete |
+| 3 — Focus & Events | Focus ring, modal stack, event dispatch to widgets | 🔄 In progress |
 | 4 — Core Widgets | Text, List (virtual scroll), theme system | 🔲 Planned |
 | 5 — Table & Custom Widgets | Data grid, custom widget state protocol | 🔲 Planned |
 | 6 — Release | Dashboard example, benchmark harness, docs, v0.1.0 | 🔲 Planned |
