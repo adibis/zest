@@ -52,27 +52,27 @@ pub const Focus = struct {
 test "Focus: next advances and wraps around" {
     var f = Focus.init(3);
     f.next();
-    try std.testing.expectEqual(@as(usize, 1), f.active());
+    try std.testing.expectEqual(1, f.active());
     f.next();
-    try std.testing.expectEqual(@as(usize, 2), f.active());
+    try std.testing.expectEqual(2, f.active());
     f.next();
-    try std.testing.expectEqual(@as(usize, 0), f.active());
+    try std.testing.expectEqual(0, f.active());
 }
 
 test "Focus: prev retreats and wraps around" {
     var f = Focus.init(3);
     f.prev();
-    try std.testing.expectEqual(@as(usize, 2), f.active());
+    try std.testing.expectEqual(2, f.active());
     f.prev();
-    try std.testing.expectEqual(@as(usize, 1), f.active());
+    try std.testing.expectEqual(1, f.active());
 }
 
 test "Focus: single element stays fixed on next and prev" {
     var f = Focus.init(1);
     f.next();
-    try std.testing.expectEqual(@as(usize, 0), f.active());
+    try std.testing.expectEqual(0, f.active());
     f.prev();
-    try std.testing.expectEqual(@as(usize, 0), f.active());
+    try std.testing.expectEqual(0, f.active());
 }
 
 test "Focus: is() returns true for active slot, false for others" {
@@ -93,40 +93,42 @@ test "Focus: is() returns false for unknown id" {
 test "Focus: zero count is a no-op" {
     var f = Focus.init(0);
     f.next();
-    try std.testing.expectEqual(@as(usize, 0), f.active());
+    try std.testing.expectEqual(0, f.active());
     f.prev();
-    try std.testing.expectEqual(@as(usize, 0), f.active());
+    try std.testing.expectEqual(0, f.active());
 }
 
 test "Focus: set() jumps directly to index" {
     var f = Focus.init(3);
     f.set(2);
-    try std.testing.expectEqual(@as(usize, 2), f.active());
+    try std.testing.expectEqual(2, f.active());
     f.set(0);
-    try std.testing.expectEqual(@as(usize, 0), f.active());
+    try std.testing.expectEqual(0, f.active());
 }
 
 test "Focus: set() clamps when index >= count" {
     var f = Focus.init(3);
     f.set(5);
-    try std.testing.expectEqual(@as(usize, 2), f.active());
+    try std.testing.expectEqual(2, f.active());
 }
 
 test "Focus: set() is no-op when count is 0" {
     var f = Focus.init(0);
     f.set(1);
-    try std.testing.expectEqual(@as(usize, 0), f.active());
+    try std.testing.expectEqual(0, f.active());
 }
+
+const focus_stack_capacity = 8;
 
 /// A stack of Focus objects for hierarchical focus management.
 /// push() installs a new Focus (e.g. for a modal dialog); pop() restores the previous one.
-/// top() returns a pointer to the active Focus. Capacity is fixed at 8 levels.
+/// top() returns a mutable pointer to the active Focus.
 ///
 /// For multi-window apps, keep one FocusStack per window and store a *FocusStack
 /// pointer in your state. Point it at the active window's stack; App.run() receives
 /// **FocusStack and always operates on whatever it currently points to.
 pub const FocusStack = struct {
-    levels: [8]Focus,
+    levels: [focus_stack_capacity]Focus,
     depth: usize,
 
     pub fn init(base: Focus) FocusStack {
@@ -136,7 +138,7 @@ pub const FocusStack = struct {
         return s;
     }
 
-    /// Returns a pointer to the active (top) Focus.
+    /// Returns a mutable pointer to the active (top) Focus.
     pub fn top(self: *FocusStack) *Focus {
         std.debug.assert(self.depth > 0);
         return &self.levels[self.depth - 1];
@@ -174,23 +176,23 @@ pub const FocusStack = struct {
 
 test "FocusStack: top returns base Focus after init" {
     var s = FocusStack.init(Focus.init(3));
-    try std.testing.expectEqual(@as(usize, 0), s.top().active());
+    try std.testing.expectEqual(0, s.top().active());
 }
 
 test "FocusStack: push installs new Focus, pop restores previous" {
     var s = FocusStack.init(Focus.init(3));
     s.top().next();
-    try std.testing.expectEqual(@as(usize, 1), s.top().active());
+    try std.testing.expectEqual(1, s.top().active());
     try s.push(Focus.init(2));
-    try std.testing.expectEqual(@as(usize, 0), s.top().active());
+    try std.testing.expectEqual(0, s.top().active());
     s.pop();
-    try std.testing.expectEqual(@as(usize, 1), s.top().active());
+    try std.testing.expectEqual(1, s.top().active());
 }
 
 test "FocusStack: pop on base Focus is a no-op" {
     var s = FocusStack.init(Focus.init(2));
     s.pop();
-    try std.testing.expectEqual(@as(usize, 1), s.depth);
+    try std.testing.expectEqual(1, s.depth);
 }
 
 test "FocusStack: push past capacity returns Overflow" {

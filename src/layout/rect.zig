@@ -47,25 +47,25 @@ pub const Rect = struct {
 
 test "Rect: zero value is valid" {
     const r: Rect = .{};
-    try std.testing.expectEqual(@as(u16, 0), r.x);
-    try std.testing.expectEqual(@as(u16, 0), r.width);
+    try std.testing.expectEqual(0, r.x);
+    try std.testing.expectEqual(0, r.width);
 }
 
 test "Rect: construction" {
     const r: Rect = .{ .x = 10, .y = 5, .width = 80, .height = 24 };
-    try std.testing.expectEqual(@as(u16, 10), r.x);
-    try std.testing.expectEqual(@as(u16, 5), r.y);
-    try std.testing.expectEqual(@as(u16, 80), r.width);
-    try std.testing.expectEqual(@as(u16, 24), r.height);
+    try std.testing.expectEqual(10, r.x);
+    try std.testing.expectEqual(5, r.y);
+    try std.testing.expectEqual(80, r.width);
+    try std.testing.expectEqual(24, r.height);
 }
 
 test "Rect: child offsets from parent origin" {
     const parent: Rect = .{ .x = 10, .y = 5, .width = 80, .height = 24 };
     const c = parent.child(2, 3, 40, 10);
-    try std.testing.expectEqual(@as(u16, 12), c.x);   // 10 + 2
-    try std.testing.expectEqual(@as(u16, 8), c.y);    // 5 + 3
-    try std.testing.expectEqual(@as(u16, 40), c.width);
-    try std.testing.expectEqual(@as(u16, 10), c.height);
+    try std.testing.expectEqual(12, c.x);   // 10 + 2
+    try std.testing.expectEqual(8, c.y);    // 5 + 3
+    try std.testing.expectEqual(40, c.width);
+    try std.testing.expectEqual(10, c.height);
 }
 
 test "Rect: child at zero offset preserves parent origin" {
@@ -78,15 +78,15 @@ test "Rect: child at zero offset preserves parent origin" {
 test "Rect: float may exceed parent bounds" {
     const parent: Rect = .{ .x = 0, .y = 0, .width = 100, .height = 100 };
     const dialog = parent.float(50, 50, 60, 60); // ends at 110x110 — intentional
-    try std.testing.expectEqual(@as(u16, 50), dialog.x);
-    try std.testing.expectEqual(@as(u16, 50), dialog.y);
-    try std.testing.expectEqual(@as(u16, 60), dialog.width);
-    try std.testing.expectEqual(@as(u16, 60), dialog.height);
+    try std.testing.expectEqual(50, dialog.x);
+    try std.testing.expectEqual(50, dialog.y);
+    try std.testing.expectEqual(60, dialog.width);
+    try std.testing.expectEqual(60, dialog.height);
 }
 
 test "Rect: float anchors to parent origin" {
     const parent: Rect = .{ .x = 10, .y = 5, .width = 100, .height = 100 };
     const tooltip = parent.float(20, 3, 40, 5);
-    try std.testing.expectEqual(@as(u16, 30), tooltip.x); // 10 + 20
-    try std.testing.expectEqual(@as(u16, 8), tooltip.y);  // 5 + 3
+    try std.testing.expectEqual(30, tooltip.x); // 10 + 20
+    try std.testing.expectEqual(8, tooltip.y);  // 5 + 3
 }

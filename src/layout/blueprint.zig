@@ -150,12 +150,12 @@ test "pane: produced type has is_pane marker" {
 
 test "pane: size is preserved on the returned type" {
     const S = pane(.{ .size = .{ .fixed = 30 } });
-    try std.testing.expectEqual(@as(u16, 30), S.size.fixed);
+    try std.testing.expectEqual(30, S.size.fixed);
 }
 
 test "pane: fraction size is preserved" {
     const S = pane(.{ .size = .{ .fraction = 1 } });
-    try std.testing.expectEqual(@as(u16, 1), S.size.fraction);
+    try std.testing.expectEqual(1, S.size.fraction);
 }
 
 test "pane: id defaults to empty string" {
@@ -202,7 +202,7 @@ test "hsplit: children length is accessible" {
             pane(.{ .size = .{ .fraction = 1 } }),
         },
     });
-    try std.testing.expectEqual(@as(usize, 2), B.children.len);
+    try std.testing.expectEqual(2, B.children.len);
 }
 
 test "hsplit: children are identifiable as panes" {
@@ -216,7 +216,7 @@ test "hsplit: size defaults to fraction(1) when omitted" {
     const B = hsplit(.{
         .children = &.{pane(.{ .size = .{ .fixed = 30 } })},
     });
-    try std.testing.expectEqual(@as(u16, 1), B.size.fraction);
+    try std.testing.expectEqual(1, B.size.fraction);
 }
 
 test "hsplit: explicit size is preserved on the returned type" {
@@ -224,7 +224,7 @@ test "hsplit: explicit size is preserved on the returned type" {
         .size     = .{ .fixed = 40 },
         .children = &.{pane(.{ .size = .{ .fixed = 30 } })},
     });
-    try std.testing.expectEqual(@as(u16, 40), B.size.fixed);
+    try std.testing.expectEqual(40, B.size.fixed);
 }
 
 test "domain: produced type has is_domain marker" {
@@ -260,7 +260,7 @@ test "domain: size defaults to fraction(1) when omitted" {
         .direction = Direction.vertical,
         .children  = &.{pane(.{ .size = .{ .fraction = 1 } })},
     });
-    try std.testing.expectEqual(@as(u16, 1), B.size.fraction);
+    try std.testing.expectEqual(1, B.size.fraction);
 }
 
 test "domain: explicit size is preserved on the returned type" {
@@ -270,7 +270,7 @@ test "domain: explicit size is preserved on the returned type" {
         .size      = .{ .fixed = 25 },
         .children  = &.{pane(.{ .size = .{ .fraction = 1 } })},
     });
-    try std.testing.expectEqual(@as(u16, 25), B.size.fixed);
+    try std.testing.expectEqual(25, B.size.fixed);
 }
 
 test "domain: children are identifiable as panes" {

@@ -290,12 +290,12 @@ test "Layout.panels: returns one panel per leaf pane, no borders" {
 
     const result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 }, .{});
 
-    try std.testing.expectEqual(@as(u16, 20), result.a.win.width);
-    try std.testing.expectEqual(@as(u16, 40), result.a.win.height);
-    try std.testing.expectEqual(@as(u16, 60), result.b.win.width);
-    try std.testing.expectEqual(@as(u16, 5),  result.b.win.height);
-    try std.testing.expectEqual(@as(u16, 60), result.c.win.width);
-    try std.testing.expectEqual(@as(u16, 35), result.c.win.height);
+    try std.testing.expectEqual(20, result.a.win.width);
+    try std.testing.expectEqual(40, result.a.win.height);
+    try std.testing.expectEqual(60, result.b.win.width);
+    try std.testing.expectEqual(5,  result.b.win.height);
+    try std.testing.expectEqual(60, result.c.win.width);
+    try std.testing.expectEqual(35, result.c.win.height);
 }
 
 test "Layout.panels: bordered pane is inset by one cell per edge" {
@@ -320,11 +320,11 @@ test "Layout.panels: bordered pane is inset by one cell per edge" {
     const result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 40 }, .{});
 
     // bordered pane: 20 wide → inner 18 (−1 left, −1 right); 40 tall → inner 38
-    try std.testing.expectEqual(@as(u16, 18), result.left.win.width);
-    try std.testing.expectEqual(@as(u16, 38), result.left.win.height);
+    try std.testing.expectEqual(18, result.left.win.width);
+    try std.testing.expectEqual(38, result.left.win.height);
     // no-border pane: full size
-    try std.testing.expectEqual(@as(u16, 60), result.right.win.width);
-    try std.testing.expectEqual(@as(u16, 40), result.right.win.height);
+    try std.testing.expectEqual(60, result.right.win.width);
+    try std.testing.expectEqual(40, result.right.win.height);
 }
 
 test "PanelsType: flat blueprint produces struct with correct field names" {
@@ -339,7 +339,7 @@ test "PanelsType: flat blueprint produces struct with correct field names" {
     const W = PanelsType(B);
     try std.testing.expect(@hasField(W, "sidebar"));
     try std.testing.expect(@hasField(W, "body"));
-    try std.testing.expectEqual(@as(usize, 2), @typeInfo(W).@"struct".fields.len);
+    try std.testing.expectEqual(2, @typeInfo(W).@"struct".fields.len);
 }
 
 test "PanelsType: nested blueprint produces one field per leaf pane" {
@@ -362,7 +362,7 @@ test "PanelsType: nested blueprint produces one field per leaf pane" {
     try std.testing.expect(@hasField(W, "sidebar"));
     try std.testing.expect(@hasField(W, "header"));
     try std.testing.expect(@hasField(W, "body"));
-    try std.testing.expectEqual(@as(usize, 3), @typeInfo(W).@"struct".fields.len);
+    try std.testing.expectEqual(3, @typeInfo(W).@"struct".fields.len);
 }
 
 test "Layout.panelCount: excludes non-focusable panes" {
@@ -376,7 +376,7 @@ test "Layout.panelCount: excludes non-focusable panes" {
             p(.{ .id = "footer", .size = .{ .fixed = 1 }, .focusable = false }),
         },
     });
-    try std.testing.expectEqual(@as(usize, 2), Layout.panelCount(B));
+    try std.testing.expectEqual(2, Layout.panelCount(B));
 }
 
 test "Layout.panels: non-focusable pane always has focused = false" {
@@ -625,8 +625,8 @@ test "Layout.panelCountInDomain: counts only focusable panes in the named domain
             }),
         },
     });
-    try std.testing.expectEqual(@as(usize, 3), Layout.panelCountInDomain(B, "sidebar"));
-    try std.testing.expectEqual(@as(usize, 1), Layout.panelCountInDomain(B, "main"));
+    try std.testing.expectEqual(3, Layout.panelCountInDomain(B, "sidebar"));
+    try std.testing.expectEqual(1, Layout.panelCountInDomain(B, "main"));
 }
 
 test "Layout.panelCountInDomain: non-focusable panes inside domain are excluded" {
@@ -642,7 +642,7 @@ test "Layout.panelCountInDomain: non-focusable panes inside domain are excluded"
             p(.{ .id = "b",      .size = .{ .fraction = 1 } }),
         },
     });
-    try std.testing.expectEqual(@as(usize, 2), Layout.panelCountInDomain(B, "col"));
+    try std.testing.expectEqual(2, Layout.panelCountInDomain(B, "col"));
 }
 
 test "leafDomains: pane outside any domain gets empty string" {
