@@ -62,7 +62,10 @@ pub fn pane(comptime opts: struct {
 fn optsToSize(comptime s: anytype) Size {
     if (@hasField(@TypeOf(s), "fixed"))    return .{ .fixed    = s.fixed };
     if (@hasField(@TypeOf(s), "fraction")) return .{ .fraction = s.fraction };
-    if (@hasField(@TypeOf(s), "percent"))  return .{ .percent  = s.percent };
+    if (@hasField(@TypeOf(s), "percent")) {
+        if (s.percent > 100) @compileError("percent size must be 0–100");
+        return .{ .percent = s.percent };
+    }
     @compileError("size must be .{ .fixed = N }, .{ .fraction = N }, or .{ .percent = N }");
 }
 
