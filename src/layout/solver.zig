@@ -1,53 +1,54 @@
 //! Layout solver — turns a comptime blueprint into a flat slice of Rects.
 //!
-//! The solver bridges the comptime blueprint tree (built with slot() and
-//! box()) and the runtime Rects that widgets use to claim screen space. It
-//! runs once per resize event, allocating from the frame arena so the result
-//! is bulk-freed at the start of the next frame with zero per-Rect overhead.
+//! The solver bridges the comptime blueprint tree (built with pane(),
+//! hsplit(), and vsplit()) and the runtime Rects that widgets use to claim
+//! screen space. It runs once per resize event, allocating from the frame
+//! arena so the result is bulk-freed at the start of the next frame with
+//! zero per-Rect overhead.
 
 const std = @import("std");
 const Rect = @import("rect.zig").Rect;
 
-/// Returns the total number of leaf slots in Blueprint's tree at comptime.
+/// Returns the total number of leaf panes in Blueprint's tree at comptime.
 /// The result is used to allocate exactly the right slice before recursing.
 pub fn leafCount(comptime Blueprint: type) usize {
-    if (@hasDecl(Blueprint, "is_slot")) return 1;
-    if (@hasDecl(Blueprint, "is_box")) {
+    if (@hasDecl(Blueprint, "is_pane")) return 1;
+    if (@hasDecl(Blueprint, "is_split")) {
         var count: usize = 0;
         inline for (Blueprint.children) |Child| {
             count += comptime leafCount(Child);
         }
         return count;
     }
-    @compileError("Blueprint must be produced by slot() or box()");
+    @compileError("Blueprint must be produced by pane(), hsplit(), or vsplit()");
 }
 
 /// Resolves a comptime layout blueprint into a flat slice of Rects.
 ///
-/// Each element corresponds to one leaf slot in the blueprint tree, in
+/// Each element corresponds to one leaf pane in the blueprint tree, in
 /// depth-first left-to-right order. The caller owns the returned slice;
 /// pass the frame arena so it is freed each frame without individual frees.
 ///
-/// `Blueprint` must be a type produced by slot() or box(). Any other type
-/// is a compile-time error.
+/// `Blueprint` must be a type produced by pane(), hsplit(), or vsplit().
+/// Any other type is a compile-time error.
 pub fn solve(
     allocator: std.mem.Allocator,
     comptime Blueprint: type,
     bounds: Rect,
 ) ![]Rect {
-    if (!@hasDecl(Blueprint, "is_slot") and !@hasDecl(Blueprint, "is_box"))
-        @compileError("solve: Blueprint must be a type returned by slot() or box()");
+    if (!@hasDecl(Blueprint, "is_pane") and !@hasDecl(Blueprint, "is_split"))
+        @compileError("solve: Blueprint must be a type returned by pane(), hsplit(), or vsplit()");
     const rects = try allocator.alloc(Rect, leafCount(Blueprint));
     solveInto(Blueprint, bounds, rects);
     return rects;
 }
 
-/// Fills dst with Rects for every leaf slot under Blueprint, treating
+/// Fills dst with Rects for every leaf pane under Blueprint, treating
 /// bounds as the root of this subtree. dst must be exactly
 /// leafCount(Blueprint) long. Prefer solve() when heap allocation is
 /// acceptable; call this directly with a stack buffer when it is not.
 pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
-    if (@hasDecl(Blueprint, "is_slot")) {
+    if (@hasDecl(Blueprint, "is_pane")) {
         dst[0] = bounds;
         return;
     }
@@ -56,7 +57,7 @@ pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
     // recursion; only leaf Rects ever land in the output slice.
     var child_rects: [Blueprint.children.len]Rect = undefined;
     // is_horiz is comptime, so every branch that depends on it folds at
-    // compile time — horizontal and vertical boxes produce different machine
+    // compile time — horizontal and vertical splits produce different machine
     // code with zero shared runtime overhead.
     const is_horiz = Blueprint.direction == .horizontal;
     var cursor: u16 = 0;
@@ -129,9 +130,9 @@ pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
     }
 }
 
-test "solve: single slot returns bounds unchanged" {
-    const slot = @import("blueprint.zig").slot;
-    const S = slot(.{ .size = .{ .fixed = 30 } });
+test "solve: single pane returns bounds unchanged" {
+    const p = @import("blueprint.zig").pane;
+    const S = p(.{ .size = .{ .fixed = 30 } });
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -143,12 +144,11 @@ test "solve: single slot returns bounds unchanged" {
     try std.testing.expectEqual(bounds, rects[0]);
 }
 
-test "solve: box with one fixed child — placed at left edge" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .horizontal,
-        .children = &.{slot(.{ .size = .{ .fixed = 30 } })},
+test "solve: hsplit with one fixed pane — placed at left edge" {
+    const p = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
+        .children = &.{p(.{ .size = .{ .fixed = 30 } })},
     });
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -163,14 +163,13 @@ test "solve: box with one fixed child — placed at left edge" {
     try std.testing.expectEqual(@as(u16, 24), rects[0].height);
 }
 
-test "solve: box with two fixed children — correct offsets, no overlap" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .horizontal,
+test "solve: hsplit with two fixed panes — correct offsets, no overlap" {
+    const p = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
         .children = &.{
-            slot(.{ .size = .{ .fixed = 20 } }),
-            slot(.{ .size = .{ .fixed = 30 } }),
+            p(.{ .size = .{ .fixed = 20 } }),
+            p(.{ .size = .{ .fixed = 30 } }),
         },
     });
 
@@ -187,14 +186,13 @@ test "solve: box with two fixed children — correct offsets, no overlap" {
     try std.testing.expectEqual(@as(u16, 30), rects[1].width);
 }
 
-test "solve: box with fixed and fraction child — fraction gets remaining width" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .horizontal,
+test "solve: hsplit fixed + fraction — fraction gets remaining width" {
+    const p = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
         .children = &.{
-            slot(.{ .size = .{ .fixed = 30 } }),
-            slot(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fixed = 30 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
         },
     });
 
@@ -210,14 +208,13 @@ test "solve: box with fixed and fraction child — fraction gets remaining width
     try std.testing.expectEqual(@as(u16, 50), rects[1].width);
 }
 
-test "solve: fixed + fraction — fraction gets remaining width" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .horizontal,
+test "solve: hsplit fixed + fraction — fraction gets remaining width (variant)" {
+    const p = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
         .children = &.{
-            slot(.{ .size = .{ .fixed = 20 } }),
-            slot(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fixed = 20 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
         },
     });
 
@@ -231,14 +228,13 @@ test "solve: fixed + fraction — fraction gets remaining width" {
     try std.testing.expectEqual(@as(u16, 60), rects[1].width);
 }
 
-test "solve: two equal fractions split remaining width evenly" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .horizontal,
+test "solve: hsplit two equal fractions split remaining width evenly" {
+    const p = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
         .children = &.{
-            slot(.{ .size = .{ .fraction = 1 } }),
-            slot(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
         },
     });
 
@@ -253,14 +249,13 @@ test "solve: two equal fractions split remaining width evenly" {
     try std.testing.expectEqual(@as(u16, 40), rects[1].width);
 }
 
-test "solve: weighted fractions split proportionally" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .horizontal,
+test "solve: hsplit weighted fractions split proportionally" {
+    const p = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
         .children = &.{
-            slot(.{ .size = .{ .fraction = 1 } }),
-            slot(.{ .size = .{ .fraction = 2 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 2 } }),
         },
     });
 
@@ -274,14 +269,13 @@ test "solve: weighted fractions split proportionally" {
     try std.testing.expectEqual(@as(u16, 60), rects[1].width);
 }
 
-test "solve: vertical box with two fixed children — correct y offsets, no overlap" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .vertical,
+test "solve: vsplit with two fixed panes — correct y offsets, no overlap" {
+    const p = @import("blueprint.zig").pane;
+    const vs = @import("blueprint.zig").vsplit;
+    const B = vs(.{
         .children = &.{
-            slot(.{ .size = .{ .fixed = 10 } }),
-            slot(.{ .size = .{ .fixed = 20 } }),
+            p(.{ .size = .{ .fixed = 10 } }),
+            p(.{ .size = .{ .fixed = 20 } }),
         },
     });
 
@@ -297,14 +291,13 @@ test "solve: vertical box with two fixed children — correct y offsets, no over
     try std.testing.expectEqual(@as(u16, 80), rects[0].width);
 }
 
-test "solve: vertical box — fixed + fraction gets remaining height" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .vertical,
+test "solve: vsplit fixed + fraction gets remaining height" {
+    const p = @import("blueprint.zig").pane;
+    const vs = @import("blueprint.zig").vsplit;
+    const B = vs(.{
         .children = &.{
-            slot(.{ .size = .{ .fixed = 3 } }),
-            slot(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fixed = 3 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
         },
     });
 
@@ -319,14 +312,13 @@ test "solve: vertical box — fixed + fraction gets remaining height" {
     try std.testing.expectEqual(@as(u16, 80), rects[1].width);
 }
 
-test "solve: vertical box — two equal fractions split height evenly" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .vertical,
+test "solve: vsplit two equal fractions split height evenly" {
+    const p = @import("blueprint.zig").pane;
+    const vs = @import("blueprint.zig").vsplit;
+    const B = vs(.{
         .children = &.{
-            slot(.{ .size = .{ .fraction = 1 } }),
-            slot(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
         },
     });
 
@@ -341,9 +333,9 @@ test "solve: vertical box — two equal fractions split height evenly" {
     try std.testing.expectEqual(@as(u16, 20), rects[1].height);
 }
 
-test "solve: single slot preserves non-zero origin" {
-    const slot = @import("blueprint.zig").slot;
-    const S = slot(.{ .size = .{ .fraction = 2 } });
+test "solve: single pane preserves non-zero origin" {
+    const p = @import("blueprint.zig").pane;
+    const S = p(.{ .size = .{ .fraction = 2 } });
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -355,19 +347,18 @@ test "solve: single slot preserves non-zero origin" {
     try std.testing.expectEqual(bounds, rects[0]);
 }
 
-test "solve: nested box — sidebar + header/body produces 3 leaf rects" {
-    const slot = @import("blueprint.zig").slot;
-    const box = @import("blueprint.zig").box;
-    const B = box(.{
-        .direction = .horizontal,
+test "solve: nested hsplit/vsplit — sidebar + header/body produces 3 leaf rects" {
+    const p  = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const vs = @import("blueprint.zig").vsplit;
+    const B = hs(.{
         .children = &.{
-            slot(.{ .size = .{ .fixed = 20 } }),
-            box(.{
-                .size = .{ .fraction = 1 },
-                .direction = .vertical,
+            p(.{ .size = .{ .fixed = 20 } }),
+            vs(.{
+                .size     = .{ .fraction = 1 },
                 .children = &.{
-                    slot(.{ .size = .{ .fixed = 5 } }),
-                    slot(.{ .size = .{ .fraction = 1 } }),
+                    p(.{ .size = .{ .fixed = 5 } }),
+                    p(.{ .size = .{ .fraction = 1 } }),
                 },
             }),
         },

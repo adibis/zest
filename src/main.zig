@@ -9,37 +9,35 @@ const vaxis = @import("vaxis");
 const zest = @import("zest");
 
 // Screen layout: fixed sidebar | vertical split (fixed header / body).
-const layout = zest.box(.{
-    .direction = .horizontal,
+const layout = zest.hsplit(.{
     .children = &.{
-        zest.slot(.{ .id = "sidebar", .size = .{ .fixed = 30 }, .border = true }),
-        zest.box(.{
+        zest.pane(.{ .id = "sidebar", .size = .{ .fixed = 30 }, .border = true }),
+        zest.vsplit(.{
             .size = .{ .fraction = 1 },
-            .direction = .vertical,
             .children = &.{
-                zest.slot(.{ .id = "header", .size = .{ .fixed = 3 }, .border = true }),
-                zest.slot(.{ .id = "body",   .size = .{ .fraction = 1 }, .border = true }),
+                zest.pane(.{ .id = "header", .size = .{ .fixed = 3 }, .border = true }),
+                zest.pane(.{ .id = "body",   .size = .{ .fraction = 1 }, .border = true }),
             },
         }),
     },
 });
 
 const State = struct {
-    focus: zest.FocusStack = zest.FocusStack.init(zest.Focus.init(zest.Box.panelCount(layout))),
+    focus: zest.FocusStack = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCount(layout))),
 };
 
 fn draw(state: *State, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateResult {
     const bounds = zest.Rect{ .x = 0, .y = 0, .width = win.width, .height = win.height };
     win.clear();
-    const wins = zest.Box.windows(layout, win, bounds, .{ .focus = &state.focus });
-    _ = wins.sidebar.win.print(&.{.{ .text = if (wins.sidebar.focused) "sidebar [*]" else "sidebar" }}, .{});
-    _ = wins.header .win.print(&.{.{ .text = if (wins.header.focused)  "header [*]"  else "header"  }}, .{});
+    const p = zest.Layout.panels(layout, win, bounds, .{ .focus = &state.focus });
+    _ = p.sidebar.win.print(&.{.{ .text = if (p.sidebar.focused) "sidebar [*]" else "sidebar" }}, .{});
+    _ = p.header .win.print(&.{.{ .text = if (p.header.focused)  "header [*]"  else "header"  }}, .{});
     const body_text = std.fmt.allocPrint(
         alloc,
         "{s}  ({d}x{d})  tab to cycle focus  q to quit",
-        .{ if (wins.body.focused) "body [*]" else "body", wins.body.win.width, wins.body.win.height },
+        .{ if (p.body.focused) "body [*]" else "body", p.body.win.width, p.body.win.height },
     ) catch return .idle;
-    _ = wins.body.win.print(&.{.{ .text = body_text }}, .{});
+    _ = p.body.win.print(&.{.{ .text = body_text }}, .{});
     return .redraw;
 }
 
