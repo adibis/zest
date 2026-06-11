@@ -1,0 +1,119 @@
+//! Panel focus — owns navigation state (which panel is active).
+//!
+//! Focus manages which index is active. Call next()/prev() for Tab navigation,
+//! set() for direct jumps (e.g. number keys), and is() for named slot
+//! comparisons at render time without any runtime string hashing.
+
+const std = @import("std");
+
+pub const Focus = struct {
+    count: usize,
+    index: usize,
+
+    pub fn init(count: usize) Focus {
+        return .{ .count = count, .index = 0 };
+    }
+
+    /// Advance to the next panel, wrapping around to 0 after the last.
+    /// No-op when count is 0 or 1.
+    pub fn next(self: *Focus) void {
+        if (self.count < 2) return;
+        self.index = (self.index + 1) % self.count;
+    }
+
+    /// Retreat to the previous panel, wrapping around to count-1 before the first.
+    /// No-op when count is 0 or 1.
+    pub fn prev(self: *Focus) void {
+        if (self.count < 2) return;
+        self.index = (self.index + self.count - 1) % self.count;
+    }
+
+    /// Returns the index of the currently active panel.
+    pub fn active(self: Focus) usize {
+        return self.index;
+    }
+
+    /// Jump directly to `index`. Clamps to count-1; no-op when count is 0.
+    pub fn set(self: *Focus, index: usize) void {
+        if (self.count == 0) return;
+        self.index = @min(index, self.count - 1);
+    }
+
+    /// Returns true if the slot named `id` is currently active.
+    /// `ids` is the ordered list of focusable slot ids, e.g. &.{ "sidebar", "header", "body" }.
+    pub fn is(self: Focus, comptime id: [:0]const u8, comptime ids: []const [:0]const u8) bool {
+        inline for (ids, 0..) |slot_id, i| {
+            if (comptime std.mem.eql(u8, slot_id, id)) return self.index == i;
+        }
+        return false;
+    }
+};
+
+test "Focus: next advances and wraps around" {
+    var f = Focus.init(3);
+    f.next();
+    try std.testing.expectEqual(@as(usize, 1), f.active());
+    f.next();
+    try std.testing.expectEqual(@as(usize, 2), f.active());
+    f.next();
+    try std.testing.expectEqual(@as(usize, 0), f.active());
+}
+
+test "Focus: prev retreats and wraps around" {
+    var f = Focus.init(3);
+    f.prev();
+    try std.testing.expectEqual(@as(usize, 2), f.active());
+    f.prev();
+    try std.testing.expectEqual(@as(usize, 1), f.active());
+}
+
+test "Focus: single element stays fixed on next and prev" {
+    var f = Focus.init(1);
+    f.next();
+    try std.testing.expectEqual(@as(usize, 0), f.active());
+    f.prev();
+    try std.testing.expectEqual(@as(usize, 0), f.active());
+}
+
+test "Focus: is() returns true for active slot, false for others" {
+    var f = Focus.init(3);
+    const ids = &.{ "sidebar", "header", "body" };
+    try std.testing.expect(f.is("sidebar", ids));
+    try std.testing.expect(!f.is("header", ids));
+    f.next();
+    try std.testing.expect(f.is("header", ids));
+    try std.testing.expect(!f.is("sidebar", ids));
+}
+
+test "Focus: is() returns false for unknown id" {
+    const f = Focus.init(2);
+    try std.testing.expect(!f.is("unknown", &.{ "a", "b" }));
+}
+
+test "Focus: zero count is a no-op" {
+    var f = Focus.init(0);
+    f.next();
+    try std.testing.expectEqual(@as(usize, 0), f.active());
+    f.prev();
+    try std.testing.expectEqual(@as(usize, 0), f.active());
+}
+
+test "Focus: set() jumps directly to index" {
+    var f = Focus.init(3);
+    f.set(2);
+    try std.testing.expectEqual(@as(usize, 2), f.active());
+    f.set(0);
+    try std.testing.expectEqual(@as(usize, 0), f.active());
+}
+
+test "Focus: set() clamps when index >= count" {
+    var f = Focus.init(3);
+    f.set(5);
+    try std.testing.expectEqual(@as(usize, 2), f.active());
+}
+
+test "Focus: set() is no-op when count is 0" {
+    var f = Focus.init(0);
+    f.set(1);
+    try std.testing.expectEqual(@as(usize, 0), f.active());
+}
