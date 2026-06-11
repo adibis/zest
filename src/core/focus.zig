@@ -142,6 +142,12 @@ pub const FocusStack = struct {
         return &self.levels[self.depth - 1];
     }
 
+    /// Returns the active panel index on the top Focus. Const-safe — does not mutate.
+    pub fn activeIndex(self: *const FocusStack) usize {
+        std.debug.assert(self.depth > 0);
+        return self.levels[self.depth - 1].index;
+    }
+
     /// Pushes a new Focus onto the stack. Returns error.Overflow if full.
     pub fn push(self: *FocusStack, focus: Focus) error{Overflow}!void {
         if (self.depth >= self.levels.len) return error.Overflow;
