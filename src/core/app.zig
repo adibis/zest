@@ -16,6 +16,7 @@ pub const Event = union(enum) {
     winsize: vaxis.Winsize,
     focus_in,
     focus_out,
+    focus_changed,
 };
 
 pub const UpdateResult = enum { redraw, quit, idle };
@@ -26,7 +27,6 @@ pub const App = struct {
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
     frame_arena: FrameArena,
-    last_winsize: ?vaxis.Winsize = null,
 
     /// tty_buf is a caller-owned byte slice used as the TTY's write buffer.
     /// It must stay alive for the lifetime of the App. We take it from the
@@ -90,21 +90,20 @@ pub const App = struct {
             self.frame_arena.reset();
 
             if (event == .winsize) {
-                self.last_winsize = event.winsize;
                 try self.vx.resize(self.alloc, self.tty.writer(), event.winsize);
             }
 
             // Tab and Shift-Tab are consumed by the framework: they advance or
-            // retreat focus, then re-fire the last winsize event so the update
-            // function re-renders with the new focus state.
+            // retreat focus, then fire focus_changed so update() re-renders with
+            // the new focus state without pretending a resize occurred.
             if (event == .key_press) {
                 const key = event.key_press;
                 const is_tab       = key.matches(vaxis.Key.tab, .{});
                 const is_shift_tab = key.matches(vaxis.Key.tab, .{ .shift = true });
-                if ((is_tab or is_shift_tab) and self.last_winsize != null) {
+                if (is_tab or is_shift_tab) {
                     if (is_tab) focus.*.top().next() else focus.*.top().prev();
                     const win = self.vx.window();
-                    if (update(ctx, .{ .winsize = self.last_winsize.? }, win, self.frame_arena.allocator()) != .quit) {
+                    if (update(ctx, .focus_changed, win, self.frame_arena.allocator()) != .quit) {
                         try self.vx.render(self.tty.writer());
                     }
                     continue;

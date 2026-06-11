@@ -71,6 +71,18 @@ pub fn WindowsType(comptime Blueprint: type) type {
 }
 
 pub const Box = struct {
+    /// Returns the number of leaf panels in Blueprint — useful for Focus.init().
+    pub fn panelCount(comptime Blueprint: type) usize {
+        return leafCount(Blueprint);
+    }
+
+    /// Returns a comptime array of leaf panel IDs in depth-first order.
+    /// Useful for deriving the ids list passed to Focus.is() without restating
+    /// slot names that are already in the blueprint.
+    pub fn panelIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
+        return leafIds(Blueprint);
+    }
+
     /// Solves Blueprint's layout within bounds, then wraps each leaf Rect in a
     /// vaxis.Window child of root_win. Returns a struct with one field per leaf
     /// slot named by each slot's id. If a slot declares `border = true`, the
