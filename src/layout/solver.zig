@@ -97,13 +97,31 @@ pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
     if (fraction_weight_total > 0) {
         const main_size = if (is_horiz) bounds.width else bounds.height;
         const remaining: u16 = main_size -| cursor;
+        // Count fractional children at comptime so the last one absorbs the
+        // integer-division remainder rather than leaving a gap at the edge.
+        comptime var n_frac: usize = 0;
+        inline for (Blueprint.children) |Child| {
+            switch (Child.size) {
+                .fraction => n_frac += 1,
+                else => {},
+            }
+        }
+        var frac_idx: usize = 0;
+        var frac_used: u16 = 0;
         inline for (Blueprint.children, 0..) |Child, i| {
             switch (Child.size) {
                 .fraction => |weight| {
-                    const dim: u16 = @intCast(@min(
-                        @as(u64, remaining) * weight / fraction_weight_total,
-                        std.math.maxInt(u16),
-                    ));
+                    const dim: u16 = if (frac_idx == n_frac - 1)
+                        remaining -| frac_used
+                    else blk: {
+                        const d: u16 = @intCast(@min(
+                            @as(u64, remaining) * weight / fraction_weight_total,
+                            std.math.maxInt(u16),
+                        ));
+                        break :blk d;
+                    };
+                    frac_used += dim;
+                    frac_idx += 1;
                     if (is_horiz) child_rects[i].width = dim else child_rects[i].height = dim;
                 },
                 else => {},
@@ -331,6 +349,35 @@ test "solve: vsplit two equal fractions split height evenly" {
     try std.testing.expectEqual(@as(u16, 20), rects[0].height);
     try std.testing.expectEqual(@as(u16, 20), rects[1].y);
     try std.testing.expectEqual(@as(u16, 20), rects[1].height);
+}
+
+test "solve: vsplit four equal fractions over indivisible height fills all space" {
+    const p  = @import("blueprint.zig").pane;
+    const vs = @import("blueprint.zig").vsplit;
+    const B = vs(.{
+        .children = &.{
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    // 39 is not divisible by 4 — exercises the remainder-to-last-child path.
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 39 });
+
+    // All rows must be consumed: last pane ends exactly at y=39.
+    const last = rects[3];
+    try std.testing.expectEqual(@as(u16, 39), last.y + last.height);
+    // First three panes each get floor(39/4) = 9 rows.
+    try std.testing.expectEqual(@as(u16, 9), rects[0].height);
+    try std.testing.expectEqual(@as(u16, 9), rects[1].height);
+    try std.testing.expectEqual(@as(u16, 9), rects[2].height);
+    // Last pane absorbs the remainder: 39 - 27 = 12.
+    try std.testing.expectEqual(@as(u16, 12), rects[3].height);
 }
 
 test "solve: single pane preserves non-zero origin" {
