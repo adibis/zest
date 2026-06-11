@@ -201,3 +201,11 @@ test "FocusStack: push past capacity returns Overflow" {
     while (i < 7) : (i += 1) try s.push(Focus.init(1));
     try std.testing.expectError(error.Overflow, s.push(Focus.init(1)));
 }
+
+test "FocusStack.is(): compiles and works on a const receiver" {
+    // This test is a compile-time sentinel: if is() ever regresses to *FocusStack
+    // (mutable), this const binding will produce a compile error, catching the bug.
+    const s = FocusStack.init(Focus.init(3));
+    try std.testing.expect(s.is("sidebar", &.{ "sidebar", "header", "body" }));
+    try std.testing.expect(!s.is("header", &.{ "sidebar", "header", "body" }));
+}
