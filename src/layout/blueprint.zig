@@ -42,12 +42,17 @@ pub fn pane(comptime opts: struct {
     /// Field name in the struct returned by Layout.panels().
     /// Must be unique across all panes in a blueprint tree.
     id: [:0]const u8 = "",
+    /// When false, this pane is excluded from the focus ring and always
+    /// reports focused = false. Use for chrome (headers, footers, log
+    /// strips) that should never receive keyboard focus.
+    focusable: bool = true,
 }) type {
     return struct {
         pub const is_pane = true;
         pub const size: Size = opts.size;
         pub const border: bool = opts.border;
         pub const id: [:0]const u8 = opts.id;
+        pub const focusable: bool = opts.focusable;
     };
 }
 
@@ -88,6 +93,16 @@ pub fn hsplit(comptime opts: anytype) type {
 /// holds a *const [N]type whose length N varies per call site.
 pub fn vsplit(comptime opts: anytype) type {
     return splitImpl(.vertical, opts);
+}
+
+test "pane: focusable defaults to true" {
+    const S = pane(.{ .size = .{ .fixed = 30 } });
+    try std.testing.expect(S.focusable);
+}
+
+test "pane: explicit focusable = false is preserved" {
+    const S = pane(.{ .size = .{ .fixed = 30 }, .focusable = false });
+    try std.testing.expect(!S.focusable);
 }
 
 test "pane: border defaults to false" {

@@ -17,6 +17,7 @@ const vaxis = @import("vaxis");
 const Rect = @import("../layout/rect.zig").Rect;
 const solveInto = @import("../layout/solver.zig").solveInto;
 const leafCount = @import("../layout/solver.zig").leafCount;
+const focusableLeafCount = @import("../layout/solver.zig").focusableLeafCount;
 const FocusStack = @import("../core/focus.zig").FocusStack;
 
 /// A resolved layout region with its associated render state for a single frame.
@@ -31,6 +32,23 @@ pub const Panel = struct {
 pub const RenderContext = struct {
     focus: ?*const FocusStack = null,
 };
+
+/// Walks the blueprint tree and returns a comptime array of focusable flags,
+/// one per leaf pane, in the same depth-first left-to-right order as solve().
+fn leafFocusable(comptime Blueprint: type) [leafCount(Blueprint)]bool {
+    if (@hasDecl(Blueprint, "is_pane")) {
+        return .{Blueprint.focusable};
+    }
+    var result: [leafCount(Blueprint)]bool = undefined;
+    var offset: usize = 0;
+    inline for (Blueprint.children) |Child| {
+        const count = comptime leafCount(Child);
+        const sub = comptime leafFocusable(Child);
+        for (0..count) |j| result[offset + j] = sub[j];
+        offset += count;
+    }
+    return result;
+}
 
 /// Walks the blueprint tree and returns a comptime array of border flags,
 /// one per leaf pane, in the same depth-first left-to-right order as solve().
@@ -88,9 +106,10 @@ pub fn PanelsType(comptime Blueprint: type) type {
 }
 
 pub const Layout = struct {
-    /// Returns the number of leaf panes in Blueprint — useful for Focus.init().
+    /// Returns the number of focusable leaf panes in Blueprint — use this to
+    /// initialize a FocusStack so Tab cycling never lands on display-only panes.
     pub fn panelCount(comptime Blueprint: type) usize {
-        return leafCount(Blueprint);
+        return focusableLeafCount(Blueprint);
     }
 
     /// Returns a comptime array of leaf pane IDs in depth-first order.
@@ -114,10 +133,12 @@ pub const Layout = struct {
     ) PanelsType(Blueprint) {
         var rects: [leafCount(Blueprint)]Rect = undefined;
         solveInto(Blueprint, bounds, &rects);
-        const borders = comptime leafBorders(Blueprint);
-        const ids = comptime leafIds(Blueprint);
+        const borders    = comptime leafBorders(Blueprint);
+        const focusables = comptime leafFocusable(Blueprint);
+        const ids        = comptime leafIds(Blueprint);
         const active: ?usize = if (ctx.focus) |f| f.activeIndex() else null;
         var result: PanelsType(Blueprint) = undefined;
+        var focusable_i: usize = 0;
         inline for (ids, 0..) |id, i| {
             const r = rects[i];
             @field(result, id) = Panel{
@@ -128,8 +149,10 @@ pub const Layout = struct {
                     .height = r.height,
                     .border = if (borders[i]) .{ .where = .all } else .{},
                 }),
-                .focused = if (active) |a| a == i else false,
+                .focused = if (!focusables[i]) false
+                           else if (active) |a| a == focusable_i else false,
             };
+            if (focusables[i]) focusable_i += 1;
         }
         return result;
     }
@@ -236,4 +259,83 @@ test "PanelsType: nested blueprint produces one field per leaf pane" {
     try std.testing.expect(@hasField(W, "header"));
     try std.testing.expect(@hasField(W, "body"));
     try std.testing.expectEqual(@as(usize, 3), @typeInfo(W).@"struct".fields.len);
+}
+
+test "Layout.panelCount: excludes non-focusable panes" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const vs = @import("../layout/blueprint.zig").vsplit;
+    const B = vs(.{
+        .children = &.{
+            p(.{ .id = "header", .size = .{ .fixed = 1 }, .focusable = false }),
+            p(.{ .id = "a",      .size = .{ .fraction = 1 } }),
+            p(.{ .id = "b",      .size = .{ .fraction = 1 } }),
+            p(.{ .id = "footer", .size = .{ .fixed = 1 }, .focusable = false }),
+        },
+    });
+    try std.testing.expectEqual(@as(usize, 2), Layout.panelCount(B));
+}
+
+test "Layout.panels: non-focusable pane always has focused = false" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const vs = @import("../layout/blueprint.zig").vsplit;
+    const B = vs(.{
+        .children = &.{
+            p(.{ .id = "chrome",  .size = .{ .fixed = 1 }, .focusable = false }),
+            p(.{ .id = "content", .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 10, .cols = 80, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const root_win = vaxis.Window{
+        .x_off = 0, .y_off = 0, .parent_x_off = 0, .parent_y_off = 0,
+        .width = screen.width, .height = screen.height, .screen = &screen,
+    };
+
+    // Even with focus index 0 active, the non-focusable pane reports false.
+    var focus = @import("../core/focus.zig").FocusStack.init(
+        @import("../core/focus.zig").Focus.init(Layout.panelCount(B)),
+    );
+    const result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 10 }, .{ .focus = &focus });
+    try std.testing.expect(!result.chrome.focused);
+    try std.testing.expect(result.content.focused);
+}
+
+test "Layout.panels: focus index maps to focusable panes only, skipping non-focusable" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const vs = @import("../layout/blueprint.zig").vsplit;
+    const B = vs(.{
+        .children = &.{
+            p(.{ .id = "a",      .size = .{ .fraction = 1 } }),
+            p(.{ .id = "chrome", .size = .{ .fixed = 2 }, .focusable = false }),
+            p(.{ .id = "b",      .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 20, .cols = 80, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const root_win = vaxis.Window{
+        .x_off = 0, .y_off = 0, .parent_x_off = 0, .parent_y_off = 0,
+        .width = screen.width, .height = screen.height, .screen = &screen,
+    };
+
+    var focus = @import("../core/focus.zig").FocusStack.init(
+        @import("../core/focus.zig").Focus.init(Layout.panelCount(B)),
+    );
+    // Index 0 → pane "a" (first focusable).
+    var result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 20 }, .{ .focus = &focus });
+    try std.testing.expect(result.a.focused);
+    try std.testing.expect(!result.chrome.focused);
+    try std.testing.expect(!result.b.focused);
+
+    // Index 1 → pane "b" (second focusable), skipping chrome.
+    focus.set(1);
+    result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 20 }, .{ .focus = &focus });
+    try std.testing.expect(!result.a.focused);
+    try std.testing.expect(!result.chrome.focused);
+    try std.testing.expect(result.b.focused);
 }
