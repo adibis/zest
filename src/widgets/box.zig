@@ -88,6 +88,29 @@ fn leafIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
     return result;
 }
 
+/// Walks the blueprint tree and returns a comptime array of domain ids, one per
+/// leaf pane, in depth-first left-to-right order. Each entry is the id of the
+/// nearest enclosing domain() node, or "" if the pane is not inside any domain.
+fn leafDomainsInner(comptime Blueprint: type, comptime current: [:0]const u8) [leafCount(Blueprint)][:0]const u8 {
+    if (@hasDecl(Blueprint, "is_pane")) {
+        return .{current};
+    }
+    const next: [:0]const u8 = if (@hasDecl(Blueprint, "is_domain")) Blueprint.id else current;
+    var result: [leafCount(Blueprint)][:0]const u8 = undefined;
+    var offset: usize = 0;
+    inline for (Blueprint.children) |Child| {
+        const count = comptime leafCount(Child);
+        const sub   = comptime leafDomainsInner(Child, next);
+        for (0..count) |j| result[offset + j] = sub[j];
+        offset += count;
+    }
+    return result;
+}
+
+fn leafDomains(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
+    return leafDomainsInner(Blueprint, "");
+}
+
 /// Produces a struct type with one Panel field per leaf pane, named by each
 /// pane's id. This is the return type of Layout.panels() — Zig infers it at
 /// the call site so callers rarely need to name it explicitly.
@@ -338,4 +361,105 @@ test "Layout.panels: focus index maps to focusable panes only, skipping non-focu
     try std.testing.expect(!result.a.focused);
     try std.testing.expect(!result.chrome.focused);
     try std.testing.expect(result.b.focused);
+}
+
+test "leafDomains: pane outside any domain gets empty string" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const vs = @import("../layout/blueprint.zig").vsplit;
+    const B = vs(.{
+        .children = &.{
+            p(.{ .id = "a", .size = .{ .fraction = 1 } }),
+            p(.{ .id = "b", .size = .{ .fraction = 1 } }),
+        },
+    });
+    const domains = comptime leafDomains(B);
+    try std.testing.expectEqualStrings("", domains[0]);
+    try std.testing.expectEqualStrings("", domains[1]);
+}
+
+test "leafDomains: pane directly inside domain gets that domain's id" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const B = d(.{
+        .id        = "sidebar",
+        .direction = Direction.vertical,
+        .children  = &.{
+            p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+            p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+        },
+    });
+    const domains = comptime leafDomains(B);
+    try std.testing.expectEqualStrings("sidebar", domains[0]);
+    try std.testing.expectEqualStrings("sidebar", domains[1]);
+}
+
+test "leafDomains: split inside domain propagates domain id to its children" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const vs = @import("../layout/blueprint.zig").vsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const B = d(.{
+        .id        = "sidebar",
+        .direction = Direction.horizontal,
+        .children  = &.{
+            vs(.{
+                .size     = .{ .fraction = 1 },
+                .children = &.{
+                    p(.{ .id = "a", .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "b", .size = .{ .fraction = 1 } }),
+                },
+            }),
+        },
+    });
+    const domains = comptime leafDomains(B);
+    try std.testing.expectEqualStrings("sidebar", domains[0]);
+    try std.testing.expectEqualStrings("sidebar", domains[1]);
+}
+
+test "leafDomains: nested domains — inner id wins over outer" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const B = d(.{
+        .id        = "outer",
+        .direction = Direction.horizontal,
+        .children  = &.{
+            p(.{ .id = "left", .size = .{ .fraction = 1 } }),
+            d(.{
+                .id        = "inner",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "right", .size = .{ .fraction = 1 } }),
+                },
+            }),
+        },
+    });
+    const domains = comptime leafDomains(B);
+    try std.testing.expectEqualStrings("outer", domains[0]);
+    try std.testing.expectEqualStrings("inner", domains[1]);
+}
+
+test "leafDomains: mixed — some panes in domain, some outside" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").hsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "sidebar",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 25 },
+                .children  = &.{
+                    p(.{ .id = "files", .size = .{ .fraction = 1 } }),
+                },
+            }),
+            p(.{ .id = "footer", .size = .{ .fraction = 1 } }),
+        },
+    });
+    const domains = comptime leafDomains(B);
+    try std.testing.expectEqualStrings("sidebar", domains[0]);
+    try std.testing.expectEqualStrings("",        domains[1]);
 }
