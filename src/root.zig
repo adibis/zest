@@ -27,6 +27,10 @@ pub const PanelsType = @import("widgets/box.zig").PanelsType;
 pub const Panel = @import("widgets/box.zig").Panel;
 pub const Focus = @import("core/focus.zig").Focus;
 pub const FocusStack = @import("core/focus.zig").FocusStack;
+pub const Color = @import("core/theme.zig").Color;
+pub const TextStyle = @import("core/theme.zig").TextStyle;
+pub const Style = @import("core/theme.zig").Style;
+pub const Theme = @import("core/theme.zig").Theme;
 
 test {
     // Importing a file in a test block pulls its test blocks into the test
@@ -41,4 +45,5 @@ test {
     _ = @import("layout/solver.zig");
     _ = @import("widgets/box.zig");
     _ = @import("core/focus.zig");
+    _ = @import("core/theme.zig");
 }
