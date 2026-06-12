@@ -8,6 +8,8 @@
 //! selected is always in the visible window.
 
 const std = @import("std");
+const vaxis = @import("vaxis");
+const Theme = @import("../core/theme.zig").Theme;
 
 pub const List = struct {
     selected: usize = 0,
@@ -31,6 +33,45 @@ pub const List = struct {
         if (height == 0) return;
         if (self.selected < self.scroll) self.scroll = self.selected;
         if (self.selected >= self.scroll + height) self.scroll = self.selected - height + 1;
+    }
+
+    /// Render visible items into win.
+    /// Selected row is highlighted: primary bg when focused, primary fg when not.
+    /// Calls ensureVisible() so selected is always in view.
+    pub fn draw(
+        self: *List,
+        win: vaxis.Window,
+        items: []const []const u8,
+        focused: bool,
+        theme: Theme,
+    ) void {
+        if (win.height == 0) return;
+        self.ensureVisible(win.height);
+        const visible_end = @min(items.len, self.scroll + @as(usize, win.height));
+        for (items[self.scroll..visible_end], 0..) |item, i| {
+            const row: u16 = @intCast(i);
+            const cell_style = if (self.scroll + i == self.selected)
+                theme.resolve(if (focused) .{ .fg = .surface, .bg = .primary } else .{ .fg = .primary })
+            else
+                theme.resolve(.{});
+            // Fill the full row so the highlight bg extends to the right edge.
+            for (0..win.width) |col| win.writeCell(@intCast(col), row, .{
+                .char = .{ .grapheme = " ", .width = 1 },
+                .style = cell_style,
+            });
+            _ = win.print(&.{.{ .text = item, .style = cell_style }}, .{
+                .wrap = .none, .row_offset = row,
+            });
+        }
+    }
+
+    /// Handle a keypress. Recognises j/↓ (down) and k/↑ (up).
+    pub fn handleKey(self: *List, key: vaxis.Key, item_count: usize) void {
+        switch (key.codepoint) {
+            'j', vaxis.Key.down => self.moveDown(item_count),
+            'k', vaxis.Key.up   => self.moveUp(),
+            else                => {},
+        }
     }
 
     /// Clamp selected and scroll to remain valid for a new item count.
@@ -125,4 +166,77 @@ test "List.setCount: no-op when selected is still in range" {
     l.setCount(10);
     try std.testing.expectEqual(2, l.selected);
     try std.testing.expectEqual(1, l.scroll);
+}
+
+// --- draw tests --------------------------------------------------------------
+
+fn makeWin(screen: *vaxis.Screen, w: u16, h: u16) vaxis.Window {
+    return .{
+        .x_off = 0, .y_off = 0, .parent_x_off = 0, .parent_y_off = 0,
+        .width = w, .height = h, .screen = screen,
+    };
+}
+
+test "List.draw: item text appears at the correct row" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 5, .cols = 20, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    var l: List = .{};
+    l.draw(makeWin(&screen, 20, 5), &.{ "alpha", "beta", "gamma" }, false, Theme.dark);
+    try std.testing.expectEqualStrings("a", screen.readCell(0, 0).?.char.grapheme);
+    try std.testing.expectEqualStrings("b", screen.readCell(0, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("g", screen.readCell(0, 2).?.char.grapheme);
+}
+
+test "List.draw: focused selected row has primary bg across full width" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    var l: List = .{ .selected = 1 };
+    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two", "three" }, true, Theme.dark);
+    const primary: vaxis.Color = .{ .rgb = .{ 0x89, 0xb4, 0xfa } };
+    try std.testing.expectEqual(primary, screen.readCell(0, 1).?.style.bg);
+    try std.testing.expectEqual(primary, screen.readCell(9, 1).?.style.bg); // trailing space
+}
+
+test "List.draw: unfocused selected row has primary fg, default bg" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    var l: List = .{ .selected = 0 };
+    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two" }, false, Theme.dark);
+    const primary: vaxis.Color = .{ .rgb = .{ 0x89, 0xb4, 0xfa } };
+    try std.testing.expectEqual(primary, screen.readCell(0, 0).?.style.fg);
+    try std.testing.expectEqual(vaxis.Color.default, screen.readCell(0, 0).?.style.bg);
+}
+
+test "List.draw: scroll offset shifts visible items" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 2, .cols = 10, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    // scroll=2: items[2] and items[3] are visible
+    var l: List = .{ .selected = 2, .scroll = 2 };
+    l.draw(makeWin(&screen, 10, 2), &.{ "a", "b", "c", "d" }, false, Theme.dark);
+    try std.testing.expectEqualStrings("c", screen.readCell(0, 0).?.char.grapheme);
+    try std.testing.expectEqualStrings("d", screen.readCell(0, 1).?.char.grapheme);
+}
+
+test "List.handleKey: j advances selection, k retreats it" {
+    var l: List = .{};
+    l.handleKey(.{ .codepoint = 'j' }, 5);
+    try std.testing.expectEqual(1, l.selected);
+    l.handleKey(.{ .codepoint = 'k' }, 5);
+    try std.testing.expectEqual(0, l.selected);
+}
+
+test "List.handleKey: down/up arrow keys work like j/k" {
+    var l: List = .{};
+    l.handleKey(.{ .codepoint = vaxis.Key.down }, 3);
+    try std.testing.expectEqual(1, l.selected);
+    l.handleKey(.{ .codepoint = vaxis.Key.up }, 3);
+    try std.testing.expectEqual(0, l.selected);
 }
