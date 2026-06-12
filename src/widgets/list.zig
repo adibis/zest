@@ -199,7 +199,7 @@ test "List.draw: focused selected row has accent bg and bold across full width" 
     defer screen.deinit(std.testing.allocator);
     var l: List = .{ .selected = 1 };
     l.draw(makeWin(&screen, 10, 3), &.{ "one", "two", "three" }, true, Theme.dark);
-    const accent: vaxis.Color = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } };
+    const accent = Theme.dark.colors.get(.accent);
     try std.testing.expectEqual(accent, screen.readCell(0, 1).?.style.bg);
     try std.testing.expect(screen.readCell(0, 1).?.style.bold);
     try std.testing.expectEqual(accent, screen.readCell(9, 1).?.style.bg); // trailing space too
@@ -212,7 +212,7 @@ test "List.draw: unfocused selected row has primary fg and bold, no accent bg" {
     defer screen.deinit(std.testing.allocator);
     var l: List = .{ .selected = 0 };
     l.draw(makeWin(&screen, 10, 3), &.{ "one", "two" }, false, Theme.dark);
-    const primary: vaxis.Color = .{ .rgb = .{ 0x89, 0xb4, 0xfa } };
+    const primary = Theme.dark.colors.get(.primary);
     try std.testing.expectEqual(primary, screen.readCell(0, 0).?.style.fg);
     try std.testing.expect(screen.readCell(0, 0).?.style.bold);
     try std.testing.expectEqual(vaxis.Color.default, screen.readCell(0, 0).?.style.bg);
