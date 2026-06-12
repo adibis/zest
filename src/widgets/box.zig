@@ -19,6 +19,7 @@ const solveInto = @import("../layout/solver.zig").solveInto;
 const leafCount = @import("../layout/solver.zig").leafCount;
 const focusableLeafCount = @import("../layout/solver.zig").focusableLeafCount;
 const FocusStack = @import("../core/focus.zig").FocusStack;
+const Focus      = @import("../core/focus.zig").Focus;
 
 /// A resolved layout region with its associated render state for a single frame.
 /// Each named field in the struct returned by Layout.panels() is a Panel.
@@ -208,27 +209,57 @@ pub const Layout = struct {
         return leafIds(Blueprint);
     }
 
-    /// Returns the FocusStack index that represents panel_id within domain_id.
-    /// Use this instead of a hand-written numeric literal so the index stays
-    /// correct when children inside the domain are reordered.
-    pub fn panelFocusIndex(
+    /// Returns a struct type wrapping a FocusStack for the named domain, with
+    /// each focusable panel mapped to a typed enum value. Eliminates integer
+    /// and string literals from navigation code:
+    ///
+    ///     const SF = Layout.domainFocusType(layout, "sidebar");
+    ///     var sf = SF.init();
+    ///     sf.set(.files);       // jump to files — no integer, no string
+    ///     sf.is(.branches)      // check focus  — no integer, no string
+    ///     &sf.stack             // raw FocusStack for Layout.panels()
+    pub fn domainFocusType(
         comptime Blueprint: type,
         comptime domain_id: [:0]const u8,
-        comptime panel_id:  [:0]const u8,
-    ) usize {
+    ) type {
         @setEvalBranchQuota(100_000);
-        const N       = comptime leafCount(Blueprint);
-        const ids     = comptime leafIds(Blueprint);
-        const domains = comptime leafDomains(Blueprint);
-        const fidxs   = comptime leafDomainFocusableIndices(Blueprint);
+        const N          = comptime leafCount(Blueprint);
+        const ids_       = comptime leafIds(Blueprint);
+        const domains_   = comptime leafDomains(Blueprint);
+        const focusables_= comptime leafFocusable(Blueprint);
+        const count      = comptime focusableCountInDomain(Blueprint, domain_id);
+
+        // Collect focusable panel names in this domain, in focus-index order.
+        var panel_names: [count][:0]const u8 = undefined;
+        var k: usize = 0;
         inline for (0..N) |i| {
-            if (comptime (std.mem.eql(u8, ids[i], panel_id) and
-                          std.mem.eql(u8, domains[i], domain_id)))
-            {
-                return fidxs[i];
+            if (comptime (focusables_[i] and std.mem.eql(u8, domains_[i], domain_id))) {
+                panel_names[k] = ids_[i];
+                k += 1;
             }
         }
-        @compileError("panel '" ++ panel_id ++ "' not found in domain '" ++ domain_id ++ "'");
+
+        // Build an enum with one value per panel so callers write .files, not 0.
+        const final_names = panel_names;
+        const DomainPanel = @Enum(usize, .exhaustive, &final_names, &std.simd.iota(usize, count));
+
+        return struct {
+            stack: FocusStack,
+
+            pub fn init() @This() {
+                return .{ .stack = FocusStack.init(Focus.init(count)) };
+            }
+
+            /// Jump directly to the named panel.
+            pub fn set(self: *@This(), panel: DomainPanel) void {
+                self.stack.set(@intFromEnum(panel));
+            }
+
+            /// Returns true if the named panel is currently focused.
+            pub fn is(self: *const @This(), panel: DomainPanel) bool {
+                return self.stack.activeIndex() == @intFromEnum(panel);
+            }
+        };
     }
 
     /// Solves Blueprint's layout within bounds and returns a named struct of
@@ -779,7 +810,7 @@ test "leafDomains: mixed — some panes in domain, some outside" {
     try std.testing.expectEqualStrings("",        domains[1]);
 }
 
-test "Layout.panelFocusIndex: returns domain-local focus index for each panel" {
+test "Layout.domainFocusType: set and is use typed panel enum, no integers" {
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").hsplit;
     const d  = @import("../layout/blueprint.zig").domain;
@@ -793,7 +824,6 @@ test "Layout.panelFocusIndex: returns domain-local focus index for each panel" {
                 .children  = &.{
                     p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
                     p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
-                    p(.{ .id = "commits",  .size = .{ .fraction = 1 } }),
                 },
             }),
             d(.{
@@ -802,13 +832,21 @@ test "Layout.panelFocusIndex: returns domain-local focus index for each panel" {
                 .size      = .{ .fraction = 1 },
                 .children  = &.{
                     p(.{ .id = "showcase", .size = .{ .fraction = 1 } }),
-                    p(.{ .id = "log",      .size = .{ .fixed = 5 }, .focusable = false }),
                 },
             }),
         },
     });
-    try std.testing.expectEqual(0, Layout.panelFocusIndex(B, "sidebar", "files"));
-    try std.testing.expectEqual(1, Layout.panelFocusIndex(B, "sidebar", "branches"));
-    try std.testing.expectEqual(2, Layout.panelFocusIndex(B, "sidebar", "commits"));
-    try std.testing.expectEqual(0, Layout.panelFocusIndex(B, "main",    "showcase"));
+    const SidebarFocus = Layout.domainFocusType(B, "sidebar");
+    var sf = SidebarFocus.init();
+    try std.testing.expect(sf.is(.files));       // starts at 0 = files
+    sf.set(.branches);
+    try std.testing.expect(sf.is(.branches));
+    try std.testing.expect(!sf.is(.files));
+
+    const MainFocus = Layout.domainFocusType(B, "main");
+    var mf = MainFocus.init();
+    try std.testing.expect(mf.is(.showcase));
+    // Advancing sidebar does not affect main domain.
+    sf.set(.files);
+    try std.testing.expect(mf.is(.showcase));
 }

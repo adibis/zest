@@ -46,11 +46,8 @@ const layout = zest.vsplit(.{
     },
 });
 
-const sidebar_files    = zest.Layout.panelFocusIndex(layout, "sidebar", "files");
-const sidebar_branches = zest.Layout.panelFocusIndex(layout, "sidebar", "branches");
-const sidebar_commits  = zest.Layout.panelFocusIndex(layout, "sidebar", "commits");
-const sidebar_stash    = zest.Layout.panelFocusIndex(layout, "sidebar", "stash");
-const main_showcase    = zest.Layout.panelFocusIndex(layout, "main",    "showcase");
+const SidebarFocus = zest.Layout.domainFocusType(layout, "sidebar");
+const MainFocus    = zest.Layout.domainFocusType(layout, "main");
 
 const files_items = [_][]const u8{
     "src/main.zig",
@@ -105,11 +102,11 @@ fn diffStyleBold(fg: ?DiffColor) vaxis.Cell.Style {
 // --- State -------------------------------------------------------------------
 
 const State = struct {
-    focus_sidebar: zest.FocusStack,
-    focus_main:    zest.FocusStack,
-    active_focus:  *zest.FocusStack,
-    files_list:    zest.DefaultList,
-    color_scheme:  vaxis.Color.Scheme,
+    sidebar:      SidebarFocus,
+    main:         MainFocus,
+    active_focus: *zest.FocusStack,
+    files_list:   zest.DefaultList,
+    color_scheme: vaxis.Color.Scheme,
 };
 
 // --- Draw --------------------------------------------------------------------
@@ -213,8 +210,8 @@ fn draw(state: *State, win: vaxis.Window) zest.UpdateResult {
     else
         zest.catppuccin_latte;
 
-    const sidebar_focus: ?*zest.FocusStack = if (state.active_focus == &state.focus_sidebar) &state.focus_sidebar else null;
-    const main_focus:    ?*zest.FocusStack = if (state.active_focus == &state.focus_main)    &state.focus_main    else null;
+    const sidebar_focus: ?*zest.FocusStack = if (state.active_focus == &state.sidebar.stack) &state.sidebar.stack else null;
+    const main_focus:    ?*zest.FocusStack = if (state.active_focus == &state.main.stack)    &state.main.stack    else null;
     const p = zest.Layout.panels(layout, win,
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
         .{ .sidebar = sidebar_focus, .main = main_focus });
@@ -246,10 +243,10 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
         .key_press => |key| {
             if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
             if (key.matches('w', .{ .ctrl = true })) {
-                state.active_focus = if (state.active_focus == &state.focus_sidebar)
-                    &state.focus_main
+                state.active_focus = if (state.active_focus == &state.sidebar.stack)
+                    &state.main.stack
                 else
-                    &state.focus_sidebar;
+                    &state.sidebar.stack;
                 return draw(state, win);
             }
             if (key.matches(vaxis.Key.tab, .{})) {
@@ -258,20 +255,19 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
             }
             switch (key.codepoint) {
                 'j', 'k', vaxis.Key.down, vaxis.Key.up => {
-                    if (state.active_focus == &state.focus_sidebar and
-                        state.focus_sidebar.activeIndex() == sidebar_files)
-                    {
+                    if (state.active_focus == &state.sidebar.stack and state.sidebar.is(.files)) {
                         state.files_list.handleKey(key, files_items.len);
                     }
                     return draw(state, win);
                 },
                 '0' => {
-                    state.active_focus = &state.focus_main;
-                    state.focus_main.set(main_showcase);
+                    state.active_focus = &state.main.stack;
+                    state.main.set(.showcase);
                 },
                 '1'...'4' => |ch| {
-                    state.active_focus = &state.focus_sidebar;
-                    state.focus_sidebar.set(@intCast(ch - '1'));
+                    state.active_focus = &state.sidebar.stack;
+                    const idx: usize = @intCast(ch - '1');
+                    state.sidebar.set(@enumFromInt(idx));
                 },
                 else => return .idle,
             }
@@ -293,11 +289,11 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     var state: State = undefined;
-    state.focus_sidebar = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCountInDomain(layout, "sidebar")));
-    state.focus_main    = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCountInDomain(layout, "main")));
-    state.active_focus  = &state.focus_sidebar;
-    state.color_scheme  = .dark;
-    state.files_list    = .{ .widget_theme = zest.mocha_widget };
+    state.sidebar      = SidebarFocus.init();
+    state.main         = MainFocus.init();
+    state.active_focus = &state.sidebar.stack;
+    state.color_scheme = .dark;
+    state.files_list   = .{ .widget_theme = zest.mocha_widget };
 
     try app.run(&state, &state.active_focus, update);
 }
