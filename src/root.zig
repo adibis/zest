@@ -33,9 +33,12 @@ pub const Color     = @import("core/theme.zig").Color;
 pub const TextStyle = @import("core/theme.zig").TextStyle;
 pub const Style     = @import("core/theme.zig").Style;     // generic: Style(C)
 pub const Theme     = @import("core/theme.zig").Theme;     // generic: Theme(C)
-pub const dark      = @import("core/theme.zig").dark;      // Theme(Color) instance
-pub const DefaultStyle = Style(Color);
-pub const DefaultTheme = Theme(Color);
+pub const dark        = @import("core/theme.zig").dark;        // Theme(Color) instance
+pub const WidgetTheme = @import("core/theme.zig").WidgetTheme; // generic: WidgetTheme(C)
+pub const dark_widget = @import("core/theme.zig").dark_widget; // WidgetTheme(Color) instance
+pub const DefaultStyle       = Style(Color);
+pub const DefaultTheme       = Theme(Color);
+pub const DefaultWidgetTheme = WidgetTheme(Color);
 
 test {
     // Importing a file in a test block pulls its test blocks into the test

@@ -71,6 +71,27 @@ pub fn Theme(comptime C: type) type {
     };
 }
 
+/// Per-widget style configuration — maps widget roles to app color tokens.
+/// Store on the widget at construction time; pass Theme(C) at draw time.
+/// All token fields are optional: null means terminal default for that role.
+pub fn WidgetTheme(comptime C: type) type {
+    return struct {
+        selected_focused_fg:   ?C   = null,
+        selected_focused_bg:   ?C   = null,
+        selected_unfocused_fg: ?C   = null,
+        selected_unfocused_bg: ?C   = null,
+        selected_bold:          bool = true,
+    };
+}
+
+/// Default widget theme for the built-in dark palette.
+pub const dark_widget: WidgetTheme(Color) = .{
+    .selected_focused_fg   = .surface,
+    .selected_focused_bg   = .accent,
+    .selected_unfocused_fg = .primary,
+    .selected_bold         = true,
+};
+
 /// Built-in dark theme (Catppuccin Mocha palette) using the framework Color enum.
 pub const dark: Theme(Color) = .{
     .colors = std.EnumArray(Color, vaxis.Color).init(.{
@@ -155,6 +176,36 @@ test "dark: danger color has the expected rgb" {
 test "dark: accent color has the expected rgb" {
     const want: vaxis.Color = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } };
     try std.testing.expectEqual(want, dark.colors.get(.accent));
+}
+
+test "WidgetTheme: all fields default to null / selected_bold true" {
+    const wt: WidgetTheme(Color) = .{};
+    try std.testing.expectEqual(@as(?Color, null), wt.selected_focused_fg);
+    try std.testing.expectEqual(@as(?Color, null), wt.selected_focused_bg);
+    try std.testing.expectEqual(@as(?Color, null), wt.selected_unfocused_fg);
+    try std.testing.expectEqual(@as(?Color, null), wt.selected_unfocused_bg);
+    try std.testing.expect(wt.selected_bold);
+}
+
+test "dark_widget: focused tokens are surface/accent" {
+    try std.testing.expectEqual(@as(?Color, .surface), dark_widget.selected_focused_fg);
+    try std.testing.expectEqual(@as(?Color, .accent),  dark_widget.selected_focused_bg);
+}
+
+test "dark_widget: unfocused tokens are primary fg, no bg" {
+    try std.testing.expectEqual(@as(?Color, .primary), dark_widget.selected_unfocused_fg);
+    try std.testing.expectEqual(@as(?Color, null),     dark_widget.selected_unfocused_bg);
+}
+
+test "WidgetTheme(C): works with a user-defined color enum" {
+    const AppColor = enum { bg, fg, sel };
+    const wt: WidgetTheme(AppColor) = .{
+        .selected_focused_fg = .fg,
+        .selected_focused_bg = .sel,
+    };
+    try std.testing.expectEqual(@as(?AppColor, .fg),  wt.selected_focused_fg);
+    try std.testing.expectEqual(@as(?AppColor, .sel), wt.selected_focused_bg);
+    try std.testing.expectEqual(@as(?AppColor, null), wt.selected_unfocused_fg);
 }
 
 test "Theme(C): works with a user-defined color enum" {
