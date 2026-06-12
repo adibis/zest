@@ -141,13 +141,13 @@ const layout = zest.vsplit(.{
 
 Panes declared with `focusable = false` are excluded from Tab cycling and always report `focused = false`. Headers, footers, status bars, and log strips are declared inline — no null-focus plumbing needed.
 
-### Widgets Own Their State *(planned)*
+### Widgets Own Their State
 
-Widgets will be structs with explicit state — scroll position, cursor, selection index. Application data is passed in at draw time. This keeps widgets reusable and keeps your data model in control.
+Widgets are structs with explicit state — scroll position, cursor, selection index. Application data is passed in at draw time. This keeps widgets reusable and keeps your data model in control.
 
-### Design Token Styling *(planned)*
+### Design Token Styling
 
-Colors and text styles will be expressed as named tokens (`primary`, `danger`, `surface`, `muted`) rather than raw color codes. A theme maps tokens to concrete terminal colors at render time.
+Colors and text styles are expressed as named tokens (`primary`, `danger`, `surface`, `muted`) rather than raw color codes. A theme maps tokens to concrete terminal colors at render time. `Theme(C)` and `Style(C)` are generic over any caller-supplied enum, so domain-specific palettes (e.g. diff annotations, severity levels) coexist with the built-in Catppuccin palette without global state.
 
 ### Single-Threaded First
 
@@ -233,30 +233,31 @@ const layout = zest.vsplit(.{
 });
 ```
 
-Initialize one `FocusStack` per domain using `panelCountInDomain`, then pass whichever is active to `panels()` — the inactive domain receives `null` and its panes report `focused = false`:
+Call `domainFocusType` once per domain to get a typed focus struct whose `.set()` and `.is()` methods accept pane names as enum literals — no strings or integers at call sites. Pass each domain's `FocusStack` (or `null` for the inactive domain) to `panels()`:
 
 ```zig
+const SidebarFocus = zest.Layout.domainFocusType(layout, "sidebar");
+const MainFocus    = zest.Layout.domainFocusType(layout, "main");
+
 const State = struct {
-    focus_sidebar: zest.FocusStack,
-    focus_main:    zest.FocusStack,
-    active_focus:  *zest.FocusStack,
+    sidebar:      SidebarFocus,
+    main:         MainFocus,
+    active_focus: *zest.FocusStack,
 };
 
 // In main():
-state.focus_sidebar = zest.FocusStack.init(zest.Focus.init(
-    zest.Layout.panelCountInDomain(layout, "sidebar")));
-state.focus_main = zest.FocusStack.init(zest.Focus.init(
-    zest.Layout.panelCountInDomain(layout, "main")));
-state.active_focus = &state.focus_sidebar;
+state.sidebar      = SidebarFocus.init();
+state.main         = MainFocus.init();
+state.active_focus = &state.sidebar.stack;
 
 // In draw():
-const sidebar_fs: ?*zest.FocusStack = if (state.active_focus == &state.focus_sidebar)
-    &state.focus_sidebar else null;
-const main_fs: ?*zest.FocusStack = if (state.active_focus == &state.focus_main)
-    &state.focus_main else null;
+const sidebar_focus: ?*zest.FocusStack =
+    if (state.active_focus == &state.sidebar.stack) &state.sidebar.stack else null;
+const main_focus: ?*zest.FocusStack =
+    if (state.active_focus == &state.main.stack) &state.main.stack else null;
 const p = zest.Layout.panels(layout, win,
     .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
-    .{ .sidebar = sidebar_fs, .main = main_fs });
+    .{ .sidebar = sidebar_focus, .main = main_focus });
 ```
 
 See [`src/main.zig`](src/main.zig) for the complete demo.
@@ -270,7 +271,7 @@ See [`src/main.zig`](src/main.zig) for the complete demo.
 | 1 — Foundation | libvaxis wiring, event loop, frame arena, resize handling | ✅ Complete |
 | 2 — Layout Engine | Layout types, recursive solver, Layout compositor, named panels | ✅ Complete |
 | 3 — Focus System | FocusStack, Tab cycling, domain focus isolation, non-focusable chrome | ✅ Complete |
-| 4 — Core Widgets | Text, List (virtual scroll), theme system | 🔲 Planned |
+| 4 — Core Widgets | Text, List (virtual scroll), theme system | ✅ Complete |
 | 5 — Table & Custom Widgets | Data grid, custom widget state protocol | 🔲 Planned |
 | 6 — Release | Dashboard example, benchmark harness, docs, v0.1.0 | 🔲 Planned |
 
