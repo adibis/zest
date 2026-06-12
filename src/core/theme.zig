@@ -5,9 +5,9 @@
 //! Theme at draw time and call resolve() to get vaxis.Cell.Style values.
 //!
 //! Theme and Style are generic over a caller-supplied Color enum, so apps can
-//! define domain-specific token sets (e.g. faction colors, DEFCON states)
-//! without touching the framework. The built-in Color enum and dark constant
-//! serve as the default palette for apps that don't need custom tokens.
+//! define domain-specific token sets (e.g. diff annotations, severity levels)
+//! without touching the framework. The built-in Color enum and the
+//! catppuccin_mocha / catppuccin_latte constants serve as the default palettes.
 
 const std = @import("std");
 const vaxis = @import("vaxis");
