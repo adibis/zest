@@ -24,6 +24,9 @@ pub const TextStyle = packed struct {
     italic:    bool = false,
     underline: bool = false,
     dim:       bool = false,
+    /// Swap fg and bg using the terminal's own colors. Works on every terminal
+    /// regardless of 24-bit color support — ideal for selection cursors.
+    reverse:   bool = false,
 };
 
 /// A semantic style: foreground, background, and text decorations.
@@ -47,6 +50,7 @@ pub const Theme = struct {
             .italic   = style.text.italic,
             .ul_style = if (style.text.underline) .single else .off,
             .dim      = style.text.dim,
+            .reverse  = style.text.reverse,
         };
     }
 
@@ -72,6 +76,7 @@ test "Style: all fields default to zero/unset" {
     try std.testing.expect(!s.text.italic);
     try std.testing.expect(!s.text.underline);
     try std.testing.expect(!s.text.dim);
+    try std.testing.expect(!s.text.reverse);
 }
 
 test "Theme.resolve: default style produces terminal-default fg and bg" {
@@ -106,6 +111,12 @@ test "Theme.resolve: underline maps to single underline style" {
 test "Theme.resolve: no underline maps to off" {
     const result = Theme.dark.resolve(.{});
     try std.testing.expectEqual(vaxis.Cell.Style.Underline.off, result.ul_style);
+}
+
+test "Theme.resolve: reverse text style is forwarded" {
+    const result = Theme.dark.resolve(.{ .text = .{ .reverse = true } });
+    try std.testing.expect(result.reverse);
+    try std.testing.expect(!result.bold);
 }
 
 test "Theme.dark: surface color has the expected rgb" {
