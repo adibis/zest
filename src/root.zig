@@ -24,6 +24,7 @@ pub const domain = @import("layout/blueprint.zig").domain;
 pub const solve = @import("layout/solver.zig").solve;
 pub const Layout = @import("widgets/box.zig").Layout;
 pub const Text = @import("widgets/text.zig").Text;
+pub const List = @import("widgets/list.zig").List;
 pub const PanelsType = @import("widgets/box.zig").PanelsType;
 pub const Panel = @import("widgets/box.zig").Panel;
 pub const Focus = @import("core/focus.zig").Focus;
@@ -46,6 +47,7 @@ test {
     _ = @import("layout/solver.zig");
     _ = @import("widgets/box.zig");
     _ = @import("widgets/text.zig");
+    _ = @import("widgets/list.zig");
     _ = @import("core/focus.zig");
     _ = @import("core/theme.zig");
 }
