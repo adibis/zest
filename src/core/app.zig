@@ -11,12 +11,15 @@ const FrameArena = @import("memory.zig").FrameArena;
 const FocusStack = @import("focus.zig").FocusStack;
 
 pub const Event = union(enum) {
-    key_press: vaxis.Key,
-    mouse: vaxis.Mouse,
-    winsize: vaxis.Winsize,
+    key_press:    vaxis.Key,
+    mouse:        vaxis.Mouse,
+    winsize:      vaxis.Winsize,
     focus_in,
     focus_out,
     focus_changed,
+    /// Terminal reported its color scheme (dark/light). Fired once at startup
+    /// if the terminal supports OSC color scheme queries, and again on change.
+    color_scheme: vaxis.Color.Scheme,
 };
 
 pub const UpdateResult = enum { redraw, quit, idle };
@@ -84,6 +87,9 @@ pub const App = struct {
 
         try self.vx.enterAltScreen(self.tty.writer());
         try self.vx.queryTerminal(self.tty.writer(), .fromSeconds(1));
+        // Request the terminal's current color scheme; the response arrives as
+        // a color_scheme event. No-op on terminals that don't support it.
+        try self.vx.subscribeToColorSchemeUpdates(self.tty.writer());
 
         while (true) {
             const event = try loop.nextEvent();

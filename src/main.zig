@@ -1,8 +1,9 @@
 //! Zest framework demo — two focus domains, scrollable list, custom theme.
 //!
-//! The sidebar (four panels, Tab-cycled) uses zest's built-in dark theme.
-//! The showcase panel uses a separate DiffColor enum and diff theme —
-//! two Theme(C) instances coexisting in one draw() call, no global state.
+//! The sidebar uses the built-in Catppuccin palette (Mocha/Latte selected at
+//! runtime from the terminal's reported color scheme). The showcase panel uses
+//! a separate DiffColor enum and diff theme — two Theme(C) instances coexisting
+//! in one draw() call, no global state.
 //!
 //! Tab: cycle within active domain   Ctrl-W: switch domain
 //! j/k or arrows: navigate list      0-4: jump to panel    q: quit
@@ -50,10 +51,6 @@ const sidebar_branches = 1;
 const sidebar_commits  = 2;
 const sidebar_stash    = 3;
 const main_showcase    = 0;
-
-// --- Default (dark) theme ----------------------------------------------------
-
-const dark = zest.dark;
 
 const files_items = [_][]const u8{
     "src/main.zig",
@@ -114,24 +111,25 @@ const State = struct {
     focus_main:    zest.FocusStack,
     active_focus:  *zest.FocusStack,
     files_list:    zest.DefaultList,
+    color_scheme:  vaxis.Color.Scheme,
 };
 
 // --- Draw --------------------------------------------------------------------
 
-fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8) void {
+fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, theme: zest.DefaultTheme) void {
     const border_style = if (focused)
-        dark.resolve(zest.DefaultStyle{ .fg = .primary })
+        theme.resolve(zest.DefaultStyle{ .fg = .primary })
     else
-        dark.resolve(zest.DefaultStyle{});
+        theme.resolve(zest.DefaultStyle{});
     const inner = win.child(.{ .border = .{ .where = .all, .style = border_style } });
     if (inner.height == 0) return;
 
-    // Title row — sidebar selection shown in default theme
+    // Title row — sidebar selection shown in current theme
     _ = inner.print(&.{
         .{ .text = if (focused) "showcase [*]  " else "showcase      ",
-           .style = dark.resolve(zest.DefaultStyle{ .fg = .primary, .text = .{ .bold = true } }) },
+           .style = theme.resolve(zest.DefaultStyle{ .fg = .primary, .text = .{ .bold = true } }) },
         .{ .text = selected_file,
-           .style = dark.resolve(zest.DefaultStyle{ .fg = .muted }) },
+           .style = theme.resolve(zest.DefaultStyle{ .fg = .muted }) },
     }, .{ .row_offset = 0 });
 
     if (inner.height < 3) return;
@@ -212,29 +210,34 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8) voi
 fn draw(state: *State, win: vaxis.Window) zest.UpdateResult {
     win.clear();
 
+    const theme: zest.DefaultTheme = if (state.color_scheme == .dark)
+        zest.catppuccin_mocha
+    else
+        zest.catppuccin_latte;
+
     const sidebar_focus: ?*zest.FocusStack = if (state.active_focus == &state.focus_sidebar) &state.focus_sidebar else null;
     const main_focus:    ?*zest.FocusStack = if (state.active_focus == &state.focus_main)    &state.focus_main    else null;
     const p = zest.Layout.panels(layout, win,
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
         .{ .sidebar = sidebar_focus, .main = main_focus });
 
-    zest.Text.draw(p.header.win, "zest demo", zest.DefaultStyle{ .fg = .secondary, .text = .{ .bold = true } }, dark);
+    zest.Text.draw(p.header.win, "zest demo", zest.DefaultStyle{ .fg = .secondary, .text = .{ .bold = true } }, theme);
 
     const focus_style = zest.DefaultStyle{ .fg = .primary, .text = .{ .bold = true } };
-    zest.Text.draw(p.files.win,    if (p.files.focused)    "1 files [*]"    else "1 files",    if (p.files.focused)    focus_style else zest.DefaultStyle{}, dark);
-    zest.Text.draw(p.branches.win, if (p.branches.focused) "2 branches [*]" else "2 branches", if (p.branches.focused) focus_style else zest.DefaultStyle{}, dark);
-    zest.Text.draw(p.commits.win,  if (p.commits.focused)  "3 commits [*]"  else "3 commits",  if (p.commits.focused)  focus_style else zest.DefaultStyle{}, dark);
-    zest.Text.draw(p.stash.win,    if (p.stash.focused)    "4 stash [*]"    else "4 stash",    if (p.stash.focused)    focus_style else zest.DefaultStyle{}, dark);
+    zest.Text.draw(p.files.win,    if (p.files.focused)    "1 files [*]"    else "1 files",    if (p.files.focused)    focus_style else zest.DefaultStyle{}, theme);
+    zest.Text.draw(p.branches.win, if (p.branches.focused) "2 branches [*]" else "2 branches", if (p.branches.focused) focus_style else zest.DefaultStyle{}, theme);
+    zest.Text.draw(p.commits.win,  if (p.commits.focused)  "3 commits [*]"  else "3 commits",  if (p.commits.focused)  focus_style else zest.DefaultStyle{}, theme);
+    zest.Text.draw(p.stash.win,    if (p.stash.focused)    "4 stash [*]"    else "4 stash",    if (p.stash.focused)    focus_style else zest.DefaultStyle{}, theme);
 
     const list_win = p.files.win.child(.{ .y_off = 1, .height = p.files.win.height -| 1 });
-    state.files_list.draw(list_win, &files_items, p.files.focused, dark);
+    state.files_list.draw(list_win, &files_items, p.files.focused, theme);
 
-    drawShowcase(p.showcase.win, p.showcase.focused, files_items[state.files_list.selected]);
+    drawShowcase(p.showcase.win, p.showcase.focused, files_items[state.files_list.selected], theme);
 
-    zest.Text.draw(p.log.win, "log", zest.DefaultStyle{ .fg = .muted }, dark);
+    zest.Text.draw(p.log.win, "log", zest.DefaultStyle{ .fg = .muted }, theme);
     zest.Text.draw(p.footer.win,
         "tab: cycle  j/k: navigate  ^W: switch  0-4: jump  q: quit",
-        zest.DefaultStyle{ .fg = .muted }, dark);
+        zest.DefaultStyle{ .fg = .muted }, theme);
 
     return .redraw;
 }
@@ -277,6 +280,11 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
             return draw(state, win);
         },
         .winsize, .focus_changed => return draw(state, win),
+        .color_scheme => |cs| {
+            state.color_scheme = cs;
+            state.files_list.widget_theme = if (cs == .dark) zest.mocha_widget else zest.latte_widget;
+            return draw(state, win);
+        },
         else => return .idle,
     }
 }
@@ -290,7 +298,8 @@ pub fn main(init: std.process.Init) !void {
     state.focus_sidebar = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCountInDomain(layout, "sidebar")));
     state.focus_main    = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCountInDomain(layout, "main")));
     state.active_focus  = &state.focus_sidebar;
-    state.files_list    = .{ .widget_theme = zest.dark_widget };
+    state.color_scheme  = .dark;
+    state.files_list    = .{ .widget_theme = zest.mocha_widget };
 
     try app.run(&state, &state.active_focus, update);
 }

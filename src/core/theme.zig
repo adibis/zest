@@ -84,25 +84,47 @@ pub fn WidgetTheme(comptime C: type) type {
     };
 }
 
-/// Default widget theme for the built-in dark palette.
-pub const dark_widget: WidgetTheme(Color) = .{
+/// Widget theme for Catppuccin Mocha (dark).
+pub const mocha_widget: WidgetTheme(Color) = .{
     .selected_focused_fg   = .surface,
     .selected_focused_bg   = .accent,
     .selected_unfocused_fg = .primary,
     .selected_bold         = true,
 };
 
-/// Built-in dark theme (Catppuccin Mocha palette) using the framework Color enum.
-pub const dark: Theme(Color) = .{
+/// Widget theme for Catppuccin Latte (light).
+pub const latte_widget: WidgetTheme(Color) = .{
+    .selected_focused_fg   = .surface,
+    .selected_focused_bg   = .accent,
+    .selected_unfocused_fg = .primary,
+    .selected_bold         = true,
+};
+
+/// Catppuccin Mocha — dark palette.
+pub const catppuccin_mocha: Theme(Color) = .{
     .colors = std.EnumArray(Color, vaxis.Color).init(.{
         .default   = .default,
-        .primary   = .{ .rgb = .{ 0x89, 0xb4, 0xfa } },
-        .secondary = .{ .rgb = .{ 0xb4, 0xbe, 0xfe } },
-        .surface   = .{ .rgb = .{ 0x31, 0x32, 0x44 } },
-        .muted     = .{ .rgb = .{ 0xa6, 0xad, 0xc8 } },
-        .danger    = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } },
-        .success   = .{ .rgb = .{ 0xa6, 0xe3, 0xa1 } },
-        .accent    = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } }, // yellow
+        .primary   = .{ .rgb = .{ 0x89, 0xb4, 0xfa } }, // Blue
+        .secondary = .{ .rgb = .{ 0xb4, 0xbe, 0xfe } }, // Lavender
+        .surface   = .{ .rgb = .{ 0x31, 0x32, 0x44 } }, // Surface0 (dark, fg on accent)
+        .muted     = .{ .rgb = .{ 0xa6, 0xad, 0xc8 } }, // Subtext0
+        .danger    = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } }, // Red
+        .success   = .{ .rgb = .{ 0xa6, 0xe3, 0xa1 } }, // Green
+        .accent    = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } }, // Yellow (selection bg)
+    }),
+};
+
+/// Catppuccin Latte — light palette.
+pub const catppuccin_latte: Theme(Color) = .{
+    .colors = std.EnumArray(Color, vaxis.Color).init(.{
+        .default   = .default,
+        .primary   = .{ .rgb = .{ 0x1e, 0x66, 0xf5 } }, // Blue
+        .secondary = .{ .rgb = .{ 0x72, 0x87, 0xfd } }, // Lavender
+        .surface   = .{ .rgb = .{ 0x4c, 0x4f, 0x69 } }, // Text (dark, fg on accent)
+        .muted     = .{ .rgb = .{ 0x6c, 0x6f, 0x85 } }, // Subtext0
+        .danger    = .{ .rgb = .{ 0xd2, 0x0f, 0x39 } }, // Red
+        .success   = .{ .rgb = .{ 0x40, 0xa0, 0x2b } }, // Green
+        .accent    = .{ .rgb = .{ 0xdf, 0x8e, 0x1d } }, // Yellow (selection bg)
     }),
 };
 
@@ -118,64 +140,74 @@ test "Style: all fields default to zero/unset" {
 }
 
 test "Theme.resolve: default style produces terminal-default fg and bg" {
-    const result = dark.resolve(.{});
+    const result = catppuccin_mocha.resolve(.{});
     const want: vaxis.Color = .default;
     try std.testing.expectEqual(want, result.fg);
     try std.testing.expectEqual(want, result.bg);
 }
 
 test "Theme.resolve: null fg/bg maps to terminal default" {
-    const result = dark.resolve(.{ .fg = null, .bg = null });
+    const result = catppuccin_mocha.resolve(.{ .fg = null, .bg = null });
     try std.testing.expectEqual(vaxis.Color.default, result.fg);
     try std.testing.expectEqual(vaxis.Color.default, result.bg);
 }
 
 test "Theme.resolve: primary fg maps to the expected rgb" {
-    const result = dark.resolve(.{ .fg = .primary });
+    const result = catppuccin_mocha.resolve(.{ .fg = .primary });
     const want: vaxis.Color = .{ .rgb = .{ 0x89, 0xb4, 0xfa } };
     try std.testing.expectEqual(want, result.fg);
 }
 
 test "Theme.resolve: bold text style is forwarded" {
-    const result = dark.resolve(.{ .text = .{ .bold = true } });
+    const result = catppuccin_mocha.resolve(.{ .text = .{ .bold = true } });
     try std.testing.expect(result.bold);
     try std.testing.expect(!result.italic);
 }
 
 test "Theme.resolve: dim text style is forwarded" {
-    const result = dark.resolve(.{ .text = .{ .dim = true } });
+    const result = catppuccin_mocha.resolve(.{ .text = .{ .dim = true } });
     try std.testing.expect(result.dim);
 }
 
 test "Theme.resolve: underline maps to single underline style" {
-    const result = dark.resolve(.{ .text = .{ .underline = true } });
+    const result = catppuccin_mocha.resolve(.{ .text = .{ .underline = true } });
     try std.testing.expectEqual(vaxis.Cell.Style.Underline.single, result.ul_style);
 }
 
 test "Theme.resolve: no underline maps to off" {
-    const result = dark.resolve(.{});
+    const result = catppuccin_mocha.resolve(.{});
     try std.testing.expectEqual(vaxis.Cell.Style.Underline.off, result.ul_style);
 }
 
 test "Theme.resolve: reverse text style is forwarded" {
-    const result = dark.resolve(.{ .text = .{ .reverse = true } });
+    const result = catppuccin_mocha.resolve(.{ .text = .{ .reverse = true } });
     try std.testing.expect(result.reverse);
     try std.testing.expect(!result.bold);
 }
 
-test "dark: surface color has the expected rgb" {
+test "catppuccin_mocha: surface color has the expected rgb" {
     const want: vaxis.Color = .{ .rgb = .{ 0x31, 0x32, 0x44 } };
-    try std.testing.expectEqual(want, dark.colors.get(.surface));
+    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.surface));
 }
 
-test "dark: danger color has the expected rgb" {
+test "catppuccin_mocha: danger color has the expected rgb" {
     const want: vaxis.Color = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } };
-    try std.testing.expectEqual(want, dark.colors.get(.danger));
+    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.danger));
 }
 
-test "dark: accent color has the expected rgb" {
+test "catppuccin_mocha: accent color has the expected rgb" {
     const want: vaxis.Color = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } };
-    try std.testing.expectEqual(want, dark.colors.get(.accent));
+    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.accent));
+}
+
+test "catppuccin_latte: primary color has the expected rgb" {
+    const want: vaxis.Color = .{ .rgb = .{ 0x1e, 0x66, 0xf5 } };
+    try std.testing.expectEqual(want, catppuccin_latte.colors.get(.primary));
+}
+
+test "catppuccin_latte: accent color has the expected rgb" {
+    const want: vaxis.Color = .{ .rgb = .{ 0xdf, 0x8e, 0x1d } };
+    try std.testing.expectEqual(want, catppuccin_latte.colors.get(.accent));
 }
 
 test "WidgetTheme: all fields default to null / selected_bold true" {
@@ -187,14 +219,14 @@ test "WidgetTheme: all fields default to null / selected_bold true" {
     try std.testing.expect(wt.selected_bold);
 }
 
-test "dark_widget: focused tokens are surface/accent" {
-    try std.testing.expectEqual(@as(?Color, .surface), dark_widget.selected_focused_fg);
-    try std.testing.expectEqual(@as(?Color, .accent),  dark_widget.selected_focused_bg);
+test "mocha_widget: focused tokens are surface/accent" {
+    try std.testing.expectEqual(@as(?Color, .surface), mocha_widget.selected_focused_fg);
+    try std.testing.expectEqual(@as(?Color, .accent),  mocha_widget.selected_focused_bg);
 }
 
-test "dark_widget: unfocused tokens are primary fg, no bg" {
-    try std.testing.expectEqual(@as(?Color, .primary), dark_widget.selected_unfocused_fg);
-    try std.testing.expectEqual(@as(?Color, null),     dark_widget.selected_unfocused_bg);
+test "mocha_widget: unfocused tokens are primary fg, no bg" {
+    try std.testing.expectEqual(@as(?Color, .primary), mocha_widget.selected_unfocused_fg);
+    try std.testing.expectEqual(@as(?Color, null),     mocha_widget.selected_unfocused_bg);
 }
 
 test "WidgetTheme(C): works with a user-defined color enum" {

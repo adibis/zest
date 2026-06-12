@@ -15,8 +15,8 @@ const Color      = theme_mod.Color;
 const Style      = theme_mod.Style;
 const Theme      = theme_mod.Theme;
 const WidgetTheme = theme_mod.WidgetTheme;
-const dark       = theme_mod.dark;
-const dark_widget = theme_mod.dark_widget;
+const catppuccin_mocha = theme_mod.catppuccin_mocha;
+const mocha_widget     = theme_mod.mocha_widget;
 
 /// Scrollable list widget parameterized on a color token enum.
 /// C is any enum type — use the built-in Color or your own.
@@ -209,8 +209,8 @@ test "List.draw: item text appears at the correct row" {
         .rows = 5, .cols = 20, .x_pixel = 0, .y_pixel = 0,
     });
     defer screen.deinit(std.testing.allocator);
-    var l: List(Color) = .{ .widget_theme = dark_widget };
-    l.draw(makeWin(&screen, 20, 5), &.{ "alpha", "beta", "gamma" }, false, dark);
+    var l: List(Color) = .{ .widget_theme = mocha_widget };
+    l.draw(makeWin(&screen, 20, 5), &.{ "alpha", "beta", "gamma" }, false, catppuccin_mocha);
     try std.testing.expectEqualStrings("a", screen.readCell(0, 0).?.char.grapheme);
     try std.testing.expectEqualStrings("b", screen.readCell(0, 1).?.char.grapheme);
     try std.testing.expectEqualStrings("g", screen.readCell(0, 2).?.char.grapheme);
@@ -221,9 +221,9 @@ test "List.draw: focused selected row has accent bg and bold across full width" 
         .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
     });
     defer screen.deinit(std.testing.allocator);
-    var l: List(Color) = .{ .selected = 1, .widget_theme = dark_widget };
-    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two", "three" }, true, dark);
-    const accent = dark.colors.get(.accent);
+    var l: List(Color) = .{ .selected = 1, .widget_theme = mocha_widget };
+    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two", "three" }, true, catppuccin_mocha);
+    const accent = catppuccin_mocha.colors.get(.accent);
     try std.testing.expectEqual(accent, screen.readCell(0, 1).?.style.bg);
     try std.testing.expect(screen.readCell(0, 1).?.style.bold);
     try std.testing.expectEqual(accent, screen.readCell(9, 1).?.style.bg); // trailing space too
@@ -234,9 +234,9 @@ test "List.draw: unfocused selected row has primary fg and bold, no accent bg" {
         .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
     });
     defer screen.deinit(std.testing.allocator);
-    var l: List(Color) = .{ .selected = 0, .widget_theme = dark_widget };
-    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two" }, false, dark);
-    const primary = dark.colors.get(.primary);
+    var l: List(Color) = .{ .selected = 0, .widget_theme = mocha_widget };
+    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two" }, false, catppuccin_mocha);
+    const primary = catppuccin_mocha.colors.get(.primary);
     try std.testing.expectEqual(primary, screen.readCell(0, 0).?.style.fg);
     try std.testing.expect(screen.readCell(0, 0).?.style.bold);
     try std.testing.expectEqual(vaxis.Color.default, screen.readCell(0, 0).?.style.bg);
@@ -248,8 +248,8 @@ test "List.draw: scroll offset shifts visible items" {
     });
     defer screen.deinit(std.testing.allocator);
     // scroll=2: items[2] and items[3] are visible
-    var l: List(Color) = .{ .selected = 2, .scroll = 2, .widget_theme = dark_widget };
-    l.draw(makeWin(&screen, 10, 2), &.{ "a", "b", "c", "d" }, false, dark);
+    var l: List(Color) = .{ .selected = 2, .scroll = 2, .widget_theme = mocha_widget };
+    l.draw(makeWin(&screen, 10, 2), &.{ "a", "b", "c", "d" }, false, catppuccin_mocha);
     try std.testing.expectEqualStrings("c", screen.readCell(0, 0).?.char.grapheme);
     try std.testing.expectEqualStrings("d", screen.readCell(0, 1).?.char.grapheme);
 }
