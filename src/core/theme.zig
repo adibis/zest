@@ -16,6 +16,8 @@ pub const Color = enum {
     muted,
     danger,
     success,
+    /// Selection cursor / highlight background.
+    accent,
 };
 
 /// Additive text decorations. Packed so the entire set fits in one byte.
@@ -64,6 +66,7 @@ pub const Theme = struct {
             .muted     = .{ .rgb = .{ 0xa6, 0xad, 0xc8 } },
             .danger    = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } },
             .success   = .{ .rgb = .{ 0xa6, 0xe3, 0xa1 } },
+            .accent    = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } }, // yellow
         }),
     };
 };
@@ -127,4 +130,9 @@ test "Theme.dark: surface color has the expected rgb" {
 test "Theme.dark: danger color has the expected rgb" {
     const want: vaxis.Color = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } };
     try std.testing.expectEqual(want, Theme.dark.colors.get(.danger));
+}
+
+test "Theme.dark: accent color has the expected rgb" {
+    const want: vaxis.Color = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } };
+    try std.testing.expectEqual(want, Theme.dark.colors.get(.accent));
 }
