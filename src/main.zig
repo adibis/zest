@@ -73,7 +73,7 @@ const State = struct {
     focus_sidebar: zest.FocusStack,
     focus_main:    zest.FocusStack,
     active_focus:  *zest.FocusStack,
-    files_list:    zest.List,
+    files_list:    zest.DefaultList,
 };
 
 fn draw(state: *State, win: vaxis.Window) zest.UpdateResult {
@@ -170,7 +170,7 @@ pub fn main(init: std.process.Init) !void {
     state.focus_sidebar = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCountInDomain(layout, "sidebar")));
     state.focus_main    = zest.FocusStack.init(zest.Focus.init(zest.Layout.panelCountInDomain(layout, "main")));
     state.active_focus  = &state.focus_sidebar;
-    state.files_list    = .{};
+    state.files_list    = .{ .widget_theme = zest.dark_widget };
 
     try app.run(&state, &state.active_focus, update);
 }
