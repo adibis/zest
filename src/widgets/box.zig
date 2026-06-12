@@ -208,6 +208,29 @@ pub const Layout = struct {
         return leafIds(Blueprint);
     }
 
+    /// Returns the FocusStack index that represents panel_id within domain_id.
+    /// Use this instead of a hand-written numeric literal so the index stays
+    /// correct when children inside the domain are reordered.
+    pub fn panelFocusIndex(
+        comptime Blueprint: type,
+        comptime domain_id: [:0]const u8,
+        comptime panel_id:  [:0]const u8,
+    ) usize {
+        @setEvalBranchQuota(100_000);
+        const N       = comptime leafCount(Blueprint);
+        const ids     = comptime leafIds(Blueprint);
+        const domains = comptime leafDomains(Blueprint);
+        const fidxs   = comptime leafDomainFocusableIndices(Blueprint);
+        inline for (0..N) |i| {
+            if (comptime (std.mem.eql(u8, ids[i], panel_id) and
+                          std.mem.eql(u8, domains[i], domain_id)))
+            {
+                return fidxs[i];
+            }
+        }
+        @compileError("panel '" ++ panel_id ++ "' not found in domain '" ++ domain_id ++ "'");
+    }
+
     /// Solves Blueprint's layout within bounds and returns a named struct of
     /// Panels, one per leaf pane. Each Panel carries the resolved vaxis.Window
     /// and a focused bool stamped from ctx.
@@ -754,4 +777,38 @@ test "leafDomains: mixed — some panes in domain, some outside" {
     const domains = comptime leafDomains(B);
     try std.testing.expectEqualStrings("sidebar", domains[0]);
     try std.testing.expectEqualStrings("",        domains[1]);
+}
+
+test "Layout.panelFocusIndex: returns domain-local focus index for each panel" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").hsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/slot.zig").Direction;
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "sidebar",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 25 },
+                .children  = &.{
+                    p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "commits",  .size = .{ .fraction = 1 } }),
+                },
+            }),
+            d(.{
+                .id        = "main",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "showcase", .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "log",      .size = .{ .fixed = 5 }, .focusable = false }),
+                },
+            }),
+        },
+    });
+    try std.testing.expectEqual(0, Layout.panelFocusIndex(B, "sidebar", "files"));
+    try std.testing.expectEqual(1, Layout.panelFocusIndex(B, "sidebar", "branches"));
+    try std.testing.expectEqual(2, Layout.panelFocusIndex(B, "sidebar", "commits"));
+    try std.testing.expectEqual(0, Layout.panelFocusIndex(B, "main",    "showcase"));
 }

@@ -46,11 +46,11 @@ const layout = zest.vsplit(.{
     },
 });
 
-const sidebar_files    = 0;
-const sidebar_branches = 1;
-const sidebar_commits  = 2;
-const sidebar_stash    = 3;
-const main_showcase    = 0;
+const sidebar_files    = zest.Layout.panelFocusIndex(layout, "sidebar", "files");
+const sidebar_branches = zest.Layout.panelFocusIndex(layout, "sidebar", "branches");
+const sidebar_commits  = zest.Layout.panelFocusIndex(layout, "sidebar", "commits");
+const sidebar_stash    = zest.Layout.panelFocusIndex(layout, "sidebar", "stash");
+const main_showcase    = zest.Layout.panelFocusIndex(layout, "main",    "showcase");
 
 const files_items = [_][]const u8{
     "src/main.zig",
@@ -95,13 +95,11 @@ const diff_theme: zest.Theme(DiffColor) = .{
     }),
 };
 
-const DS = zest.Style(DiffColor);
-
-fn ds(fg: ?DiffColor) vaxis.Cell.Style {
-    return diff_theme.resolve(DS{ .fg = fg });
+fn diffStyle(fg: ?DiffColor) vaxis.Cell.Style {
+    return diff_theme.resolve(zest.Style(DiffColor){ .fg = fg });
 }
-fn dsb(fg: ?DiffColor) vaxis.Cell.Style {
-    return diff_theme.resolve(DS{ .fg = fg, .text = .{ .bold = true } });
+fn diffStyleBold(fg: ?DiffColor) vaxis.Cell.Style {
+    return diff_theme.resolve(zest.Style(DiffColor){ .fg = fg, .text = .{ .bold = true } });
 }
 
 // --- State -------------------------------------------------------------------
@@ -137,13 +135,13 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     // Subtitle — identifies what Theme(C) is doing here
     _ = inner.print(&.{.{
         .text = "─── Theme(DiffColor) — indexed palette, works on all terminals ─────────────────────",
-        .style = ds(.chrome),
+        .style = diffStyle(.chrome),
     }}, .{ .row_offset = 1 });
 
     var row: u16 = 2;
 
     // Recent commit log
-    _ = inner.print(&.{.{ .text = "─── git log --oneline ──────────────────────────────────────────────────────────────────", .style = ds(.chrome) }}, .{ .row_offset = row }); row += 1;
+    _ = inner.print(&.{.{ .text = "─── git log --oneline ──────────────────────────────────────────────────────────────────", .style = diffStyle(.chrome) }}, .{ .row_offset = row }); row += 1;
     const commits = [_]struct { hash: []const u8, msg: []const u8 }{
         .{ .hash = "fa32d37", .msg = "  Make List(C) generic, storing widget color bindings on the widget" },
         .{ .hash = "3022e22", .msg = "  Add WidgetTheme(C) for per-widget color role configuration" },
@@ -152,14 +150,14 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     };
     for (commits) |c| {
         _ = inner.print(&.{
-            .{ .text = c.hash, .style = dsb(.label) },
-            .{ .text = c.msg,  .style = ds(.chrome) },
+            .{ .text = c.hash, .style = diffStyleBold(.label) },
+            .{ .text = c.msg,  .style = diffStyle(.chrome) },
         }, .{ .row_offset = row }); row += 1;
     }
     row += 1;
 
     // Diff stat bars
-    _ = inner.print(&.{.{ .text = "─── git diff --stat fa32d37 ────────────────────────────────────────────────────────────", .style = ds(.chrome) }}, .{ .row_offset = row }); row += 1;
+    _ = inner.print(&.{.{ .text = "─── git diff --stat fa32d37 ────────────────────────────────────────────────────────────", .style = diffStyle(.chrome) }}, .{ .row_offset = row }); row += 1;
 
     const stats = [_]struct { file: []const u8, n: []const u8, add: []const u8, del: []const u8 }{
         .{ .file = " src/widgets/list.zig  ", .n = "142 ", .add = "++++++++++++++++++++++++++++++++", .del = "────────────────────────" },
@@ -168,21 +166,21 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     };
     for (stats) |s| {
         _ = inner.print(&.{
-            .{ .text = s.file, .style = dsb(.label)   },
-            .{ .text = "│ ",   .style = ds(.chrome)   },
-            .{ .text = s.n,    .style = ds(.chrome)   },
-            .{ .text = s.add,  .style = ds(.added)    },
-            .{ .text = s.del,  .style = ds(.removed)  },
+            .{ .text = s.file, .style = diffStyleBold(.label)   },
+            .{ .text = "│ ",   .style = diffStyle(.chrome)   },
+            .{ .text = s.n,    .style = diffStyle(.chrome)   },
+            .{ .text = s.add,  .style = diffStyle(.added)    },
+            .{ .text = s.del,  .style = diffStyle(.removed)  },
         }, .{ .row_offset = row }); row += 1;
     }
     _ = inner.print(&.{.{
         .text = " 3 files changed, 208 insertions(+), 98 deletions(-)",
-        .style = ds(.meta),
+        .style = diffStyle(.meta),
     }}, .{ .row_offset = row }); row += 1;
     row += 1;
 
     // Code diff snippet — the actual Theme(C) refactor
-    _ = inner.print(&.{.{ .text = "─── src/core/theme.zig ─────────────────────────────────────────────────────────────────", .style = ds(.chrome) }}, .{ .row_offset = row }); row += 1;
+    _ = inner.print(&.{.{ .text = "─── src/core/theme.zig ─────────────────────────────────────────────────────────────────", .style = diffStyle(.chrome) }}, .{ .row_offset = row }); row += 1;
 
     const diff_lines = [_]struct { prefix: []const u8, code: []const u8, color: DiffColor }{
         .{ .prefix = "  ", .code = " pub const Style = struct {",                       .color = .chrome  },
@@ -200,8 +198,8 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     };
     for (diff_lines) |l| {
         _ = inner.print(&.{
-            .{ .text = l.prefix, .style = dsb(l.color) },
-            .{ .text = l.code,   .style = ds(l.color)  },
+            .{ .text = l.prefix, .style = diffStyleBold(l.color) },
+            .{ .text = l.code,   .style = diffStyle(l.color)  },
         }, .{ .row_offset = row }); row += 1;
         if (row >= inner.height) break;
     }
