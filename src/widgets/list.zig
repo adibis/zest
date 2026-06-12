@@ -9,7 +9,11 @@
 
 const std = @import("std");
 const vaxis = @import("vaxis");
-const Theme = @import("../core/theme.zig").Theme;
+const theme_mod = @import("../core/theme.zig");
+const Color      = theme_mod.Color;
+const Style      = theme_mod.Style;
+const Theme      = theme_mod.Theme;
+const dark       = theme_mod.dark;
 
 pub const List = struct {
     selected: usize = 0,
@@ -43,7 +47,7 @@ pub const List = struct {
         win: vaxis.Window,
         items: []const []const u8,
         focused: bool,
-        theme: Theme,
+        theme: Theme(Color),
     ) void {
         if (win.height == 0) return;
         self.ensureVisible(win.height);
@@ -52,11 +56,11 @@ pub const List = struct {
             const row: u16 = @intCast(i);
             const cell_style = if (self.scroll + i == self.selected)
                 theme.resolve(if (focused)
-                    .{ .fg = .surface, .bg = .accent, .text = .{ .bold = true } }
+                    Style(Color){ .fg = .surface, .bg = .accent, .text = .{ .bold = true } }
                 else
-                    .{ .fg = .primary, .text = .{ .bold = true } })
+                    Style(Color){ .fg = .primary, .text = .{ .bold = true } })
             else
-                theme.resolve(.{});
+                theme.resolve(Style(Color){});
             // Fill the full row so the highlight bg extends to the right edge.
             for (0..win.width) |col| win.writeCell(@intCast(col), row, .{
                 .char = .{ .grapheme = " ", .width = 1 },
@@ -186,7 +190,7 @@ test "List.draw: item text appears at the correct row" {
     });
     defer screen.deinit(std.testing.allocator);
     var l: List = .{};
-    l.draw(makeWin(&screen, 20, 5), &.{ "alpha", "beta", "gamma" }, false, Theme.dark);
+    l.draw(makeWin(&screen, 20, 5), &.{ "alpha", "beta", "gamma" }, false, dark);
     try std.testing.expectEqualStrings("a", screen.readCell(0, 0).?.char.grapheme);
     try std.testing.expectEqualStrings("b", screen.readCell(0, 1).?.char.grapheme);
     try std.testing.expectEqualStrings("g", screen.readCell(0, 2).?.char.grapheme);
@@ -198,8 +202,8 @@ test "List.draw: focused selected row has accent bg and bold across full width" 
     });
     defer screen.deinit(std.testing.allocator);
     var l: List = .{ .selected = 1 };
-    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two", "three" }, true, Theme.dark);
-    const accent = Theme.dark.colors.get(.accent);
+    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two", "three" }, true, dark);
+    const accent = dark.colors.get(.accent);
     try std.testing.expectEqual(accent, screen.readCell(0, 1).?.style.bg);
     try std.testing.expect(screen.readCell(0, 1).?.style.bold);
     try std.testing.expectEqual(accent, screen.readCell(9, 1).?.style.bg); // trailing space too
@@ -211,8 +215,8 @@ test "List.draw: unfocused selected row has primary fg and bold, no accent bg" {
     });
     defer screen.deinit(std.testing.allocator);
     var l: List = .{ .selected = 0 };
-    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two" }, false, Theme.dark);
-    const primary = Theme.dark.colors.get(.primary);
+    l.draw(makeWin(&screen, 10, 3), &.{ "one", "two" }, false, dark);
+    const primary = dark.colors.get(.primary);
     try std.testing.expectEqual(primary, screen.readCell(0, 0).?.style.fg);
     try std.testing.expect(screen.readCell(0, 0).?.style.bold);
     try std.testing.expectEqual(vaxis.Color.default, screen.readCell(0, 0).?.style.bg);
@@ -225,7 +229,7 @@ test "List.draw: scroll offset shifts visible items" {
     defer screen.deinit(std.testing.allocator);
     // scroll=2: items[2] and items[3] are visible
     var l: List = .{ .selected = 2, .scroll = 2 };
-    l.draw(makeWin(&screen, 10, 2), &.{ "a", "b", "c", "d" }, false, Theme.dark);
+    l.draw(makeWin(&screen, 10, 2), &.{ "a", "b", "c", "d" }, false, dark);
     try std.testing.expectEqualStrings("c", screen.readCell(0, 0).?.char.grapheme);
     try std.testing.expectEqualStrings("d", screen.readCell(0, 1).?.char.grapheme);
 }

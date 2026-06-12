@@ -51,7 +51,7 @@ const sidebar_commits  = 2;
 const sidebar_stash    = 3;
 const main_diff        = 0;
 
-const theme = zest.Theme.dark;
+const theme = zest.dark;
 
 const files_items = [_][]const u8{
     "src/main.zig",
@@ -93,7 +93,7 @@ fn draw(state: *State, win: vaxis.Window) zest.UpdateResult {
     const commits_label  = if (p.commits.focused)  "3 commits [*]"  else "3 commits";
     const stash_label    = if (p.stash.focused)    "4 stash [*]"    else "4 stash";
     const diff_label     = if (p.diff.focused)     "0 diff [*]"     else "0 diff";
-    const focus_style    = zest.Style{ .fg = .primary, .text = .{ .bold = true } };
+    const focus_style    = zest.DefaultStyle{ .fg = .primary, .text = .{ .bold = true } };
 
     zest.Text.draw(p.files.win,    files_label,    if (p.files.focused)    focus_style else .{}, theme);
     zest.Text.draw(p.branches.win, branches_label, if (p.branches.focused) focus_style else .{}, theme);
