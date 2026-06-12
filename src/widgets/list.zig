@@ -51,7 +51,10 @@ pub const List = struct {
         for (items[self.scroll..visible_end], 0..) |item, i| {
             const row: u16 = @intCast(i);
             const cell_style = if (self.scroll + i == self.selected)
-                theme.resolve(if (focused) .{ .fg = .surface, .bg = .primary } else .{ .fg = .primary })
+                theme.resolve(if (focused)
+                    .{ .fg = .surface, .bg = .accent, .text = .{ .bold = true } }
+                else
+                    .{ .fg = .primary, .text = .{ .bold = true } })
             else
                 theme.resolve(.{});
             // Fill the full row so the highlight bg extends to the right edge.
@@ -189,19 +192,20 @@ test "List.draw: item text appears at the correct row" {
     try std.testing.expectEqualStrings("g", screen.readCell(0, 2).?.char.grapheme);
 }
 
-test "List.draw: focused selected row has primary bg across full width" {
+test "List.draw: focused selected row has accent bg and bold across full width" {
     var screen = try vaxis.Screen.init(std.testing.allocator, .{
         .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
     });
     defer screen.deinit(std.testing.allocator);
     var l: List = .{ .selected = 1 };
     l.draw(makeWin(&screen, 10, 3), &.{ "one", "two", "three" }, true, Theme.dark);
-    const primary: vaxis.Color = .{ .rgb = .{ 0x89, 0xb4, 0xfa } };
-    try std.testing.expectEqual(primary, screen.readCell(0, 1).?.style.bg);
-    try std.testing.expectEqual(primary, screen.readCell(9, 1).?.style.bg); // trailing space
+    const accent: vaxis.Color = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } };
+    try std.testing.expectEqual(accent, screen.readCell(0, 1).?.style.bg);
+    try std.testing.expect(screen.readCell(0, 1).?.style.bold);
+    try std.testing.expectEqual(accent, screen.readCell(9, 1).?.style.bg); // trailing space too
 }
 
-test "List.draw: unfocused selected row has primary fg, default bg" {
+test "List.draw: unfocused selected row has primary fg and bold, no accent bg" {
     var screen = try vaxis.Screen.init(std.testing.allocator, .{
         .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
     });
@@ -210,6 +214,7 @@ test "List.draw: unfocused selected row has primary fg, default bg" {
     l.draw(makeWin(&screen, 10, 3), &.{ "one", "two" }, false, Theme.dark);
     const primary: vaxis.Color = .{ .rgb = .{ 0x89, 0xb4, 0xfa } };
     try std.testing.expectEqual(primary, screen.readCell(0, 0).?.style.fg);
+    try std.testing.expect(screen.readCell(0, 0).?.style.bold);
     try std.testing.expectEqual(vaxis.Color.default, screen.readCell(0, 0).?.style.bg);
 }
 
