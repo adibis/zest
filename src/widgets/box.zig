@@ -18,8 +18,10 @@ const Rect = @import("../layout/rect.zig").Rect;
 const solveInto = @import("../layout/solver.zig").solveInto;
 const leafCount = @import("../layout/solver.zig").leafCount;
 const focusableLeafCount = @import("../layout/solver.zig").focusableLeafCount;
-const FocusStack = @import("../core/focus.zig").FocusStack;
-const Focus      = @import("../core/focus.zig").Focus;
+const focus_mod       = @import("../core/focus.zig");
+const Focus           = focus_mod.Focus;
+const FocusStack      = focus_mod.FocusStack;
+const DomainFocusType = focus_mod.DomainFocusType;
 
 /// A resolved layout region with its associated render state for a single frame.
 /// Each named field in the struct returned by Layout.panels() is a Panel.
@@ -209,11 +211,11 @@ pub const Layout = struct {
         comptime domain_id: [:0]const u8,
     ) type {
         @setEvalBranchQuota(100_000);
-        const N          = comptime leafCount(Blueprint);
-        const ids_       = comptime leafIds(Blueprint);
-        const domains_   = comptime leafDomains(Blueprint);
-        const focusables_= comptime leafFocusable(Blueprint);
-        const count      = comptime focusableCountInDomain(Blueprint, domain_id);
+        const N           = comptime leafCount(Blueprint);
+        const ids_        = comptime leafIds(Blueprint);
+        const domains_    = comptime leafDomains(Blueprint);
+        const focusables_ = comptime leafFocusable(Blueprint);
+        const count       = comptime focusableCountInDomain(Blueprint, domain_id);
 
         // Collect focusable panel names in this domain, in focus-index order.
         var panel_names: [count][:0]const u8 = undefined;
@@ -225,32 +227,7 @@ pub const Layout = struct {
             }
         }
 
-        // Build an enum with one value per panel so callers write .files, not 0.
-        const final_names = panel_names;
-        const enum_values = comptime blk: {
-            var v: [count]usize = undefined;
-            for (0..count) |i| v[i] = i;
-            break :blk v;
-        };
-        const DomainPanel = @Enum(usize, .exhaustive, &final_names, &enum_values);
-
-        return struct {
-            stack: FocusStack,
-
-            pub fn init() @This() {
-                return .{ .stack = FocusStack.init(Focus.init(count)) };
-            }
-
-            /// Jump directly to the named panel.
-            pub fn set(self: *@This(), panel: DomainPanel) void {
-                self.stack.set(@intFromEnum(panel));
-            }
-
-            /// Returns true if the named panel is currently focused.
-            pub fn is(self: *const @This(), panel: DomainPanel) bool {
-                return self.stack.activeIndex() == @intFromEnum(panel);
-            }
-        };
+        return DomainFocusType(count, panel_names);
     }
 
     /// Solves Blueprint's layout within bounds and returns a named struct of

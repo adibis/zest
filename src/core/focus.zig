@@ -213,3 +213,41 @@ test "FocusStack.is(): compiles and works on a const receiver" {
     try std.testing.expect(s.is("sidebar", &.{ "sidebar", "header", "body" }));
     try std.testing.expect(!s.is("header", &.{ "sidebar", "header", "body" }));
 }
+
+/// Returns a struct type that wraps a FocusStack with a typed enum for the
+/// given panel names. The returned type provides:
+///
+///   init()   — creates a FocusStack sized to count
+///   set(p)   — jumps to the named panel
+///   is(p)    — returns true if the named panel is currently focused
+///   stack    — the raw FocusStack, for use with Layout.panels()
+///
+/// Intended to be called from Layout.domainFocusType(), which extracts the
+/// panel names from a comptime blueprint. Can also be used directly when
+/// panel names are known without a blueprint.
+pub fn DomainFocusType(comptime count: usize, comptime names: [count][:0]const u8) type {
+    const enum_values = comptime blk: {
+        var v: [count]usize = undefined;
+        for (0..count) |i| v[i] = i;
+        break :blk v;
+    };
+    const DomainPanel = @Enum(usize, .exhaustive, &names, &enum_values);
+
+    return struct {
+        stack: FocusStack,
+
+        pub fn init() @This() {
+            return .{ .stack = FocusStack.init(Focus.init(count)) };
+        }
+
+        /// Jump directly to the named panel.
+        pub fn set(self: *@This(), panel: DomainPanel) void {
+            self.stack.set(@intFromEnum(panel));
+        }
+
+        /// Returns true if the named panel is currently focused.
+        pub fn is(self: *const @This(), panel: DomainPanel) bool {
+            return self.stack.activeIndex() == @intFromEnum(panel);
+        }
+    };
+}
