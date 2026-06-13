@@ -292,3 +292,16 @@ test "List(C): works with a user-defined color enum" {
     try std.testing.expectEqual(vaxis.Color{ .index = 3 }, screen.readCell(0, 0).?.style.bg);
     try std.testing.expectEqual(vaxis.Color{ .index = 7 }, screen.readCell(0, 0).?.style.fg);
 }
+
+test "List.draw: empty slice does not panic" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    var l: List(Color) = .{ .widget_theme = mocha_widget };
+    // With no items the draw loop body never executes. Verify no panic.
+    l.draw(makeWin(&screen, 10, 3), &.{}, false, catppuccin_mocha);
+    // Screen cells remain at their init default — no bold, no accent background.
+    try std.testing.expect(!screen.readCell(0, 0).?.style.bold);
+    try std.testing.expectEqual(vaxis.Color.default, screen.readCell(0, 0).?.style.bg);
+}
