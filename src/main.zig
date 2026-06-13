@@ -113,7 +113,7 @@ fn activeFocus(state: *State) *zest.FocusStack {
 
 fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, theme: zest.DefaultTheme) void {
     const border_style = if (focused)
-        theme.resolve(zest.DefaultStyle{ .fg = .primary })
+        theme.resolve(zest.DefaultStyle{ .fg = .color_4 })
     else
         theme.resolve(zest.DefaultStyle{});
     const inner = win.child(.{ .border = .{ .where = .all, .style = border_style } });
@@ -122,9 +122,9 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     // Title row — sidebar selection shown in current theme
     _ = inner.print(&.{
         .{ .text = if (focused) "showcase [*]  " else "showcase      ",
-           .style = theme.resolve(zest.DefaultStyle{ .fg = .primary, .text = .{ .bold = true } }) },
+           .style = theme.resolve(zest.DefaultStyle{ .fg = .color_4, .text = .{ .bold = true } }) },
         .{ .text = selected_file,
-           .style = theme.resolve(zest.DefaultStyle{ .fg = .muted }) },
+           .style = theme.resolve(zest.DefaultStyle{ .fg = .color_7 }) },
     }, .{ .row_offset = 0 });
 
     if (inner.height < 3) return;
@@ -214,9 +214,9 @@ fn draw(state: *State, win: vaxis.Window) void {
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
         &state.focus);
 
-    zest.Text.draw(p.header.win, "zest demo", zest.DefaultStyle{ .fg = .secondary, .text = .{ .bold = true } }, theme);
+    zest.Text.draw(p.header.win, "zest demo", zest.DefaultStyle{ .fg = .color_5, .text = .{ .bold = true } }, theme);
 
-    const focus_style = zest.DefaultStyle{ .fg = .primary, .text = .{ .bold = true } };
+    const focus_style = zest.DefaultStyle{ .fg = .color_4, .text = .{ .bold = true } };
     zest.Text.draw(p.files.win,    if (p.files.focused)    "1 files [*]"    else "1 files",    if (p.files.focused)    focus_style else zest.DefaultStyle{}, theme);
     zest.Text.draw(p.branches.win, if (p.branches.focused) "2 branches [*]" else "2 branches", if (p.branches.focused) focus_style else zest.DefaultStyle{}, theme);
     zest.Text.draw(p.commits.win,  if (p.commits.focused)  "3 commits [*]"  else "3 commits",  if (p.commits.focused)  focus_style else zest.DefaultStyle{}, theme);
@@ -227,10 +227,10 @@ fn draw(state: *State, win: vaxis.Window) void {
 
     drawShowcase(p.showcase.win, p.showcase.focused, files_items[state.files_list.selected], theme);
 
-    zest.Text.draw(p.log.win, "log", zest.DefaultStyle{ .fg = .muted }, theme);
+    zest.Text.draw(p.log.win, "log", zest.DefaultStyle{ .fg = .color_7 }, theme);
     zest.Text.draw(p.footer.win,
         "tab: cycle  j/k: navigate  ^W: switch  0-4: jump  q: quit",
-        zest.DefaultStyle{ .fg = .muted }, theme);
+        zest.DefaultStyle{ .fg = .color_7 }, theme);
 
 }
 

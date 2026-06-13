@@ -1,30 +1,35 @@
-//! Compile-time validated styling via semantic color tokens.
+//! Color palette + theme system.
 //!
-//! Color names what a thing is (primary, muted, danger) — not what it looks
-//! like. Theme maps those names to concrete vaxis colors. Widgets receive a
-//! Theme at draw time and call resolve() to get vaxis.Cell.Style values.
+//! The library palette is intentionally anonymous: 16 ANSI slots and a small
+//! set of universal UI roles (background, foreground, cursor, selection).
+//! These role names are not opinions about meaning — they match the keys
+//! every mainstream terminal theme file (ghostty, kitty, alacritty) already
+//! defines, so a theme expressed in any of those formats maps 1:1 onto a
+//! Theme(Color) value.
 //!
-//! Theme and Style are generic over a caller-supplied Color enum, so apps can
-//! define domain-specific token sets (e.g. diff annotations, severity levels)
-//! without touching the framework. The built-in Color enum and the
-//! catppuccin_mocha / catppuccin_latte constants serve as the default palettes.
+//! Theme and Style are generic over a caller-supplied Color enum, so apps
+//! that want semantic role names (chat_text, my_nick, diff_added) define
+//! their own enum and Theme(C) value on top, and use it alongside the
+//! framework palette in the same draw call.
 
 const std = @import("std");
 const vaxis = @import("vaxis");
 
-/// Built-in semantic color roles used by the framework's default theme.
-/// Apps that need domain-specific tokens should define their own enum and
-/// pass it to Theme(C) and Style(C) directly.
+/// Anonymous palette: 16-slot ANSI + 6 universal UI roles.
+/// Maps 1:1 onto ghostty/kitty/alacritty theme files.
 pub const Color = enum {
-    default,
-    primary,
-    secondary,
-    surface,
-    muted,
-    danger,
-    success,
-    /// Selection cursor / highlight background.
-    accent,
+    default,                                          // terminal default
+
+    // 16 ANSI palette slots
+    color_0,  color_1,  color_2,  color_3,
+    color_4,  color_5,  color_6,  color_7,
+    color_8,  color_9,  color_10, color_11,
+    color_12, color_13, color_14, color_15,
+
+    // UI roles every terminal theme file defines
+    background,    foreground,
+    cursor_color,  cursor_text,
+    selection_bg,  selection_fg,
 };
 
 /// Additive text decorations. Packed so the entire set fits in one byte.
@@ -38,7 +43,7 @@ pub const TextStyle = packed struct {
     reverse:   bool = false,
 };
 
-/// A semantic style: foreground, background, and text decorations.
+/// A semantic style: foreground role, background role, text decorations.
 /// C is any enum type. null fg/bg means terminal default.
 /// Pass to Theme(C).resolve() to obtain a concrete vaxis.Cell.Style.
 pub fn Style(comptime C: type) type {
@@ -49,8 +54,8 @@ pub fn Style(comptime C: type) type {
     };
 }
 
-/// Maps semantic Color tokens to concrete vaxis colors.
-/// C is any enum type — supply the built-in Color or your own.
+/// Maps a color enum to concrete vaxis colors.
+/// C is any enum type — use the built-in Color or your own.
 pub fn Theme(comptime C: type) type {
     return struct {
         colors: std.EnumArray(C, vaxis.Color),
@@ -71,8 +76,8 @@ pub fn Theme(comptime C: type) type {
     };
 }
 
-/// Per-widget style configuration — maps widget roles to app color tokens.
-/// Store on the widget at construction time; pass Theme(C) at draw time.
+/// Per-widget color bindings — maps widget roles to palette tokens.
+/// Store on the widget at construction; pass Theme(C) at draw time.
 /// All token fields are optional: null means terminal default for that role.
 pub fn WidgetTheme(comptime C: type) type {
     return struct {
@@ -84,47 +89,87 @@ pub fn WidgetTheme(comptime C: type) type {
     };
 }
 
-/// Widget theme for Catppuccin Mocha (dark).
+/// Widget theme for the mocha (dark) default. Binds the focused selection
+/// to the theme file's selection_bg/selection_fg roles, which is what every
+/// terminal theme file already configures.
 pub const mocha_widget: WidgetTheme(Color) = .{
-    .selected_focused_fg   = .surface,
-    .selected_focused_bg   = .accent,
-    .selected_unfocused_fg = .primary,
+    .selected_focused_fg   = .selection_fg,
+    .selected_focused_bg   = .selection_bg,
+    .selected_unfocused_fg = .color_4,
     .selected_bold         = true,
 };
 
-/// Widget theme for Catppuccin Latte (light).
+/// Widget theme for the latte (light) default. Same bindings as mocha_widget;
+/// the visible colors come from whichever Theme(Color) the app is using.
 pub const latte_widget: WidgetTheme(Color) = .{
-    .selected_focused_fg   = .surface,
-    .selected_focused_bg   = .accent,
-    .selected_unfocused_fg = .primary,
+    .selected_focused_fg   = .selection_fg,
+    .selected_focused_bg   = .selection_bg,
+    .selected_unfocused_fg = .color_4,
     .selected_bold         = true,
 };
 
-/// Catppuccin Mocha — dark palette.
+/// Catppuccin Mocha — dark palette. Hex values lifted verbatim from
+/// catppuccin/ghostty themes/catppuccin-mocha.conf so any ghostty user
+/// running this theme sees the same chrome colors in a Zest app.
 pub const catppuccin_mocha: Theme(Color) = .{
     .colors = std.EnumArray(Color, vaxis.Color).init(.{
-        .default   = .default,
-        .primary   = .{ .rgb = .{ 0x89, 0xb4, 0xfa } }, // Blue
-        .secondary = .{ .rgb = .{ 0xb4, 0xbe, 0xfe } }, // Lavender
-        .surface   = .{ .rgb = .{ 0x31, 0x32, 0x44 } }, // Surface0 (dark, fg on accent)
-        .muted     = .{ .rgb = .{ 0xa6, 0xad, 0xc8 } }, // Subtext0
-        .danger    = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } }, // Red
-        .success   = .{ .rgb = .{ 0xa6, 0xe3, 0xa1 } }, // Green
-        .accent    = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } }, // Yellow (selection bg)
+        .default       = .default,
+        // 16 ANSI palette (normal + bright; catppuccin uses identical hex for both)
+        .color_0       = .{ .rgb = .{ 0x45, 0x47, 0x5a } },
+        .color_1       = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } },
+        .color_2       = .{ .rgb = .{ 0xa6, 0xe3, 0xa1 } },
+        .color_3       = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } },
+        .color_4       = .{ .rgb = .{ 0x89, 0xb4, 0xfa } },
+        .color_5       = .{ .rgb = .{ 0xf5, 0xc2, 0xe7 } },
+        .color_6       = .{ .rgb = .{ 0x94, 0xe2, 0xd5 } },
+        .color_7       = .{ .rgb = .{ 0xa6, 0xad, 0xc8 } },
+        .color_8       = .{ .rgb = .{ 0x58, 0x5b, 0x70 } },
+        .color_9       = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } },
+        .color_10      = .{ .rgb = .{ 0xa6, 0xe3, 0xa1 } },
+        .color_11      = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } },
+        .color_12      = .{ .rgb = .{ 0x89, 0xb4, 0xfa } },
+        .color_13      = .{ .rgb = .{ 0xf5, 0xc2, 0xe7 } },
+        .color_14      = .{ .rgb = .{ 0x94, 0xe2, 0xd5 } },
+        .color_15      = .{ .rgb = .{ 0xba, 0xc2, 0xde } },
+        // UI roles
+        .background    = .{ .rgb = .{ 0x1e, 0x1e, 0x2e } },
+        .foreground    = .{ .rgb = .{ 0xcd, 0xd6, 0xf4 } },
+        .cursor_color  = .{ .rgb = .{ 0xf5, 0xe0, 0xdc } },
+        .cursor_text   = .{ .rgb = .{ 0x11, 0x11, 0x1b } },
+        .selection_bg  = .{ .rgb = .{ 0x35, 0x37, 0x49 } },
+        .selection_fg  = .{ .rgb = .{ 0xcd, 0xd6, 0xf4 } },
     }),
 };
 
-/// Catppuccin Latte — light palette.
+/// Catppuccin Latte — light palette. Hex values lifted verbatim from
+/// catppuccin/ghostty themes/catppuccin-latte.conf.
 pub const catppuccin_latte: Theme(Color) = .{
     .colors = std.EnumArray(Color, vaxis.Color).init(.{
-        .default   = .default,
-        .primary   = .{ .rgb = .{ 0x1e, 0x66, 0xf5 } }, // Blue
-        .secondary = .{ .rgb = .{ 0x72, 0x87, 0xfd } }, // Lavender
-        .surface   = .{ .rgb = .{ 0x4c, 0x4f, 0x69 } }, // Text (dark, fg on accent)
-        .muted     = .{ .rgb = .{ 0x6c, 0x6f, 0x85 } }, // Subtext0
-        .danger    = .{ .rgb = .{ 0xd2, 0x0f, 0x39 } }, // Red
-        .success   = .{ .rgb = .{ 0x40, 0xa0, 0x2b } }, // Green
-        .accent    = .{ .rgb = .{ 0xdf, 0x8e, 0x1d } }, // Yellow (selection bg)
+        .default       = .default,
+        // 16 ANSI palette
+        .color_0       = .{ .rgb = .{ 0x5c, 0x5f, 0x77 } },
+        .color_1       = .{ .rgb = .{ 0xd2, 0x0f, 0x39 } },
+        .color_2       = .{ .rgb = .{ 0x40, 0xa0, 0x2b } },
+        .color_3       = .{ .rgb = .{ 0xdf, 0x8e, 0x1d } },
+        .color_4       = .{ .rgb = .{ 0x1e, 0x66, 0xf5 } },
+        .color_5       = .{ .rgb = .{ 0xea, 0x76, 0xcb } },
+        .color_6       = .{ .rgb = .{ 0x17, 0x92, 0x99 } },
+        .color_7       = .{ .rgb = .{ 0xac, 0xb0, 0xbe } },
+        .color_8       = .{ .rgb = .{ 0x6c, 0x6f, 0x85 } },
+        .color_9       = .{ .rgb = .{ 0xd2, 0x0f, 0x39 } },
+        .color_10      = .{ .rgb = .{ 0x40, 0xa0, 0x2b } },
+        .color_11      = .{ .rgb = .{ 0xdf, 0x8e, 0x1d } },
+        .color_12      = .{ .rgb = .{ 0x1e, 0x66, 0xf5 } },
+        .color_13      = .{ .rgb = .{ 0xea, 0x76, 0xcb } },
+        .color_14      = .{ .rgb = .{ 0x17, 0x92, 0x99 } },
+        .color_15      = .{ .rgb = .{ 0xbc, 0xc0, 0xcc } },
+        // UI roles
+        .background    = .{ .rgb = .{ 0xef, 0xf1, 0xf5 } },
+        .foreground    = .{ .rgb = .{ 0x4c, 0x4f, 0x69 } },
+        .cursor_color  = .{ .rgb = .{ 0xdc, 0x8a, 0x78 } },
+        .cursor_text   = .{ .rgb = .{ 0xef, 0xf1, 0xf5 } },
+        .selection_bg  = .{ .rgb = .{ 0xd8, 0xda, 0xe1 } },
+        .selection_fg  = .{ .rgb = .{ 0x4c, 0x4f, 0x69 } },
     }),
 };
 
@@ -152,8 +197,9 @@ test "Theme.resolve: null fg/bg maps to terminal default" {
     try std.testing.expectEqual(vaxis.Color.default, result.bg);
 }
 
-test "Theme.resolve: primary fg maps to the expected rgb" {
-    const result = catppuccin_mocha.resolve(.{ .fg = .primary });
+test "Theme.resolve: ANSI palette fg maps to expected rgb" {
+    // color_4 is blue in catppuccin mocha.
+    const result = catppuccin_mocha.resolve(.{ .fg = .color_4 });
     const want: vaxis.Color = .{ .rgb = .{ 0x89, 0xb4, 0xfa } };
     try std.testing.expectEqual(want, result.fg);
 }
@@ -185,29 +231,29 @@ test "Theme.resolve: reverse text style is forwarded" {
     try std.testing.expect(!result.bold);
 }
 
-test "catppuccin_mocha: surface color has the expected rgb" {
-    const want: vaxis.Color = .{ .rgb = .{ 0x31, 0x32, 0x44 } };
-    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.surface));
+test "catppuccin_mocha: background matches the ghostty theme file" {
+    const want: vaxis.Color = .{ .rgb = .{ 0x1e, 0x1e, 0x2e } };
+    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.background));
 }
 
-test "catppuccin_mocha: danger color has the expected rgb" {
+test "catppuccin_mocha: color_1 is the catppuccin red" {
     const want: vaxis.Color = .{ .rgb = .{ 0xf3, 0x8b, 0xa8 } };
-    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.danger));
+    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.color_1));
 }
 
-test "catppuccin_mocha: accent color has the expected rgb" {
-    const want: vaxis.Color = .{ .rgb = .{ 0xf9, 0xe2, 0xaf } };
-    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.accent));
+test "catppuccin_mocha: selection_bg matches the ghostty theme file" {
+    const want: vaxis.Color = .{ .rgb = .{ 0x35, 0x37, 0x49 } };
+    try std.testing.expectEqual(want, catppuccin_mocha.colors.get(.selection_bg));
 }
 
-test "catppuccin_latte: primary color has the expected rgb" {
+test "catppuccin_latte: color_4 is the catppuccin blue" {
     const want: vaxis.Color = .{ .rgb = .{ 0x1e, 0x66, 0xf5 } };
-    try std.testing.expectEqual(want, catppuccin_latte.colors.get(.primary));
+    try std.testing.expectEqual(want, catppuccin_latte.colors.get(.color_4));
 }
 
-test "catppuccin_latte: accent color has the expected rgb" {
-    const want: vaxis.Color = .{ .rgb = .{ 0xdf, 0x8e, 0x1d } };
-    try std.testing.expectEqual(want, catppuccin_latte.colors.get(.accent));
+test "catppuccin_latte: background is light" {
+    const want: vaxis.Color = .{ .rgb = .{ 0xef, 0xf1, 0xf5 } };
+    try std.testing.expectEqual(want, catppuccin_latte.colors.get(.background));
 }
 
 test "WidgetTheme: all fields default to null / selected_bold true" {
@@ -219,13 +265,13 @@ test "WidgetTheme: all fields default to null / selected_bold true" {
     try std.testing.expect(wt.selected_bold);
 }
 
-test "mocha_widget: focused tokens are surface/accent" {
-    try std.testing.expectEqual(@as(?Color, .surface), mocha_widget.selected_focused_fg);
-    try std.testing.expectEqual(@as(?Color, .accent),  mocha_widget.selected_focused_bg);
+test "mocha_widget: focused selection binds to the theme's selection roles" {
+    try std.testing.expectEqual(@as(?Color, .selection_fg), mocha_widget.selected_focused_fg);
+    try std.testing.expectEqual(@as(?Color, .selection_bg), mocha_widget.selected_focused_bg);
 }
 
-test "mocha_widget: unfocused tokens are primary fg, no bg" {
-    try std.testing.expectEqual(@as(?Color, .primary), mocha_widget.selected_unfocused_fg);
+test "mocha_widget: unfocused fg is color_4 (catppuccin blue), no override bg" {
+    try std.testing.expectEqual(@as(?Color, .color_4), mocha_widget.selected_unfocused_fg);
     try std.testing.expectEqual(@as(?Color, null),     mocha_widget.selected_unfocused_bg);
 }
 
@@ -241,15 +287,15 @@ test "WidgetTheme(C): works with a user-defined color enum" {
 }
 
 test "Theme(C): works with a user-defined color enum" {
-    const AppColor = enum { background, foreground, highlight };
+    const AppColor = enum { bg_role, fg_role, highlight };
     const app_theme: Theme(AppColor) = .{
         .colors = std.EnumArray(AppColor, vaxis.Color).init(.{
-            .background = .{ .index = 0 },
-            .foreground = .{ .index = 7 },
-            .highlight  = .{ .index = 3 },
+            .bg_role   = .{ .index = 0 },
+            .fg_role   = .{ .index = 7 },
+            .highlight = .{ .index = 3 },
         }),
     };
-    const result = app_theme.resolve(Style(AppColor){ .fg = .foreground, .bg = .background });
+    const result = app_theme.resolve(Style(AppColor){ .fg = .fg_role, .bg = .bg_role });
     try std.testing.expectEqual(vaxis.Color{ .index = 7 }, result.fg);
     try std.testing.expectEqual(vaxis.Color{ .index = 0 }, result.bg);
 }

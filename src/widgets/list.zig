@@ -216,28 +216,28 @@ test "List.draw: item text appears at the correct row" {
     try std.testing.expectEqualStrings("g", screen.readCell(0, 2).?.char.grapheme);
 }
 
-test "List.draw: focused selected row has accent bg and bold across full width" {
+test "List.draw: focused selected row uses selection_bg and bold across full width" {
     var screen = try vaxis.Screen.init(std.testing.allocator, .{
         .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
     });
     defer screen.deinit(std.testing.allocator);
     var l: List(Color) = .{ .selected = 1, .widget_theme = mocha_widget };
     l.draw(makeWin(&screen, 10, 3), &.{ "one", "two", "three" }, true, catppuccin_mocha);
-    const accent = catppuccin_mocha.colors.get(.accent);
-    try std.testing.expectEqual(accent, screen.readCell(0, 1).?.style.bg);
+    const sel_bg = catppuccin_mocha.colors.get(.selection_bg);
+    try std.testing.expectEqual(sel_bg, screen.readCell(0, 1).?.style.bg);
     try std.testing.expect(screen.readCell(0, 1).?.style.bold);
-    try std.testing.expectEqual(accent, screen.readCell(9, 1).?.style.bg); // trailing space too
+    try std.testing.expectEqual(sel_bg, screen.readCell(9, 1).?.style.bg); // trailing space too
 }
 
-test "List.draw: unfocused selected row has primary fg and bold, no accent bg" {
+test "List.draw: unfocused selected row uses color_4 fg and bold, no override bg" {
     var screen = try vaxis.Screen.init(std.testing.allocator, .{
         .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
     });
     defer screen.deinit(std.testing.allocator);
     var l: List(Color) = .{ .selected = 0, .widget_theme = mocha_widget };
     l.draw(makeWin(&screen, 10, 3), &.{ "one", "two" }, false, catppuccin_mocha);
-    const primary = catppuccin_mocha.colors.get(.primary);
-    try std.testing.expectEqual(primary, screen.readCell(0, 0).?.style.fg);
+    const blue = catppuccin_mocha.colors.get(.color_4);
+    try std.testing.expectEqual(blue, screen.readCell(0, 0).?.style.fg);
     try std.testing.expect(screen.readCell(0, 0).?.style.bold);
     try std.testing.expectEqual(vaxis.Color.default, screen.readCell(0, 0).?.style.bg);
 }
