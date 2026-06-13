@@ -258,8 +258,13 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
                 },
                 '1'...'4' => |ch| {
                     state.focus.active_domain = .sidebar;
-                    const idx: usize = @intCast(ch - '1');
-                    state.focus.sidebar.set(@enumFromInt(idx));
+                    state.focus.sidebar.set(switch (ch) {
+                        '1' => .files,
+                        '2' => .branches,
+                        '3' => .commits,
+                        '4' => .stash,
+                        else => unreachable, // guarded by the outer range arm
+                    });
                 },
                 else => return .idle,
             }
