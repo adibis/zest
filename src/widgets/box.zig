@@ -242,7 +242,12 @@ pub const Layout = struct {
 
         // Build an enum with one value per panel so callers write .files, not 0.
         const final_names = panel_names;
-        const DomainPanel = @Enum(usize, .exhaustive, &final_names, &std.simd.iota(usize, count));
+        const enum_values = comptime blk: {
+            var v: [count]usize = undefined;
+            for (0..count) |i| v[i] = i;
+            break :blk v;
+        };
+        const DomainPanel = @Enum(usize, .exhaustive, &final_names, &enum_values);
 
         return struct {
             stack: FocusStack,
