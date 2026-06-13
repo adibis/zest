@@ -201,7 +201,7 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     }
 }
 
-fn draw(state: *State, win: vaxis.Window) zest.UpdateResult {
+fn draw(state: *State, win: vaxis.Window) void {
     win.clear();
 
     const theme: zest.DefaultTheme = if (state.color_scheme == .dark)
@@ -233,10 +233,9 @@ fn draw(state: *State, win: vaxis.Window) zest.UpdateResult {
         "tab: cycle  j/k: navigate  ^W: switch  0-4: jump  q: quit",
         zest.DefaultStyle{ .fg = .muted }, theme);
 
-    return .redraw;
 }
 
-fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Allocator) zest.UpdateResult {
+fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.UpdateResult {
     _ = alloc;
     switch (event) {
         .key_press => |key| {
@@ -246,14 +245,14 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
                     &state.main.stack
                 else
                     &state.sidebar.stack;
-                return draw(state, win);
+                return .redraw;
             }
             switch (key.codepoint) {
                 'j', 'k', vaxis.Key.down, vaxis.Key.up => {
                     if (state.active_focus == &state.sidebar.stack and state.sidebar.is(.files)) {
                         state.files_list.handleKey(key, files_items.len);
                     }
-                    return draw(state, win);
+                    return .redraw;
                 },
                 '0' => {
                     state.active_focus = &state.main.stack;
@@ -266,12 +265,12 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
                 },
                 else => return .idle,
             }
-            return draw(state, win);
+            return .redraw;
         },
-        .winsize, .focus_changed => return draw(state, win),
+        .winsize, .focus_changed => return .redraw,
         .color_scheme => |cs| {
             state.color_scheme = cs;
-            return draw(state, win);
+            return .redraw;
         },
         else => return .idle,
     }
@@ -289,5 +288,5 @@ pub fn main(init: std.process.Init) !void {
     state.color_scheme = .dark;
     state.files_list   = .{ .widget_theme = zest.mocha_widget };
 
-    try app.run(&state, &state.active_focus, update);
+    try app.run(&state, &state.active_focus, update, draw);
 }

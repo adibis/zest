@@ -63,18 +63,24 @@ pub const App = struct {
         self.frame_arena.deinit();
     }
 
-    /// Run the event loop. `ctx` is passed to every `update` call.
-    /// `update` receives the event, the current root window, and a per-frame
-    /// allocator (reset at the start of each frame). Return `.quit` to exit.
+    /// Run the event loop. `ctx` is passed to every `update` and `draw` call.
     ///
-    /// `focus` is a pointer-to-pointer so multi-window apps can redirect it:
-    /// keep one FocusStack per window, store `var active: *FocusStack` in your
-    /// state, and reassign it in `update` when switching windows.
+    /// `update` receives the event and a per-frame allocator. It must mutate
+    /// state and return `.redraw`, `.idle`, or `.quit`. It must never render —
+    /// no vaxis.Window is passed, so rendering from update is impossible.
+    ///
+    /// `draw` receives the root vaxis.Window and renders the current state.
+    /// The loop calls `draw` only when `update` returns `.redraw`.
+    ///
+    /// `focus` is a pointer-to-pointer so multi-domain apps can redirect it:
+    /// keep one FocusStack per domain, store `var active: *FocusStack` in your
+    /// state, and update it in `update` when switching domains.
     pub fn run(
         self: *App,
         ctx: anytype,
         focus: **FocusStack,
-        comptime update: fn (@TypeOf(ctx), Event, vaxis.Window, std.mem.Allocator) UpdateResult,
+        comptime update: fn (@TypeOf(ctx), Event, std.mem.Allocator) UpdateResult,
+        comptime draw: fn (@TypeOf(ctx), vaxis.Window) void,
     ) !void {
         // loop is created here, not stored on App, because vaxis.Loop stores
         // *Tty and *Vaxis pointers internally. If loop were a field of App,
@@ -104,16 +110,20 @@ pub const App = struct {
             // retreat focus, then fire focus_changed so update() re-renders with
             // the new focus state without pretending a resize occurred.
             if (tabConsumed(event, focus)) {
-                const win = self.vx.window();
-                const result = update(ctx, .focus_changed, win, self.frame_arena.allocator());
+                const result = update(ctx, .focus_changed, self.frame_arena.allocator());
                 if (result == .quit) break;
-                if (result == .redraw) try self.vx.render(self.tty.writer());
+                if (result == .redraw) {
+                    draw(ctx, self.vx.window());
+                    try self.vx.render(self.tty.writer());
+                }
                 continue;
             }
 
-            const win = self.vx.window();
-            switch (update(ctx, event, win, self.frame_arena.allocator())) {
-                .redraw => try self.vx.render(self.tty.writer()),
+            switch (update(ctx, event, self.frame_arena.allocator())) {
+                .redraw => {
+                    draw(ctx, self.vx.window());
+                    try self.vx.render(self.tty.writer());
+                },
                 .quit => break,
                 .idle => {},
             }
