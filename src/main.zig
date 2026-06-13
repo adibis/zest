@@ -268,6 +268,7 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
         .winsize, .focus_changed => return .redraw,
         .color_scheme => |cs| {
             state.color_scheme = cs;
+            state.files_list.widget_theme = if (cs == .dark) zest.mocha_widget else zest.latte_widget;
             return .redraw;
         },
         else => return .idle,
