@@ -571,3 +571,32 @@ test "solve: nested hsplit/vsplit — sidebar + header/body produces 3 leaf rect
     try std.testing.expectEqual(60, rects[2].width);
     try std.testing.expectEqual(35, rects[2].height);
 }
+
+test "solve: percent + fraction with non-zero origin — child x/y are absolute" {
+    const p  = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
+        .children = &.{
+            p(.{ .size = .{ .percent = 25 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const bounds = Rect{ .x = 10, .y = 5, .width = 80, .height = 24 };
+    const rects = try solve(arena.allocator(), B, bounds);
+
+    // 25% of 80 = 20; percent pane starts at x=10 (the non-zero origin).
+    try std.testing.expectEqual(10, rects[0].x);
+    try std.testing.expectEqual(5,  rects[0].y);
+    try std.testing.expectEqual(20, rects[0].width);
+    try std.testing.expectEqual(24, rects[0].height);
+    // Fraction pane starts immediately after: x = 10 + 20 = 30.
+    try std.testing.expectEqual(30, rects[1].x);
+    try std.testing.expectEqual(5,  rects[1].y);
+    try std.testing.expectEqual(60, rects[1].width);
+    try std.testing.expectEqual(24, rects[1].height);
+}
+
