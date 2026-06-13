@@ -272,7 +272,6 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
         .winsize, .focus_changed => return draw(state, win),
         .color_scheme => |cs| {
             state.color_scheme = cs;
-            state.files_list.widget_theme = if (cs == .dark) zest.mocha_widget else zest.latte_widget;
             return draw(state, win);
         },
         else => return .idle,
