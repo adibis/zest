@@ -33,70 +33,48 @@ pub const Panel = struct {
 // struct with the right per-domain FocusStack fields — but a concrete type
 // would catch call-site mistakes at compile time.
 
-// TODO: leafFocusable, leafBorders, and leafIds are structurally identical
-// tree-walkers that differ only in what they extract from each leaf. Once the
-// node type set stabilises, unify into a single generic walker:
-// fn leafCollect(comptime Blueprint: type, comptime T: type, comptime f) [N]T.
-
-/// Walks the blueprint tree and returns a comptime array of focusable flags,
-/// one per leaf pane, in the same depth-first left-to-right order as solve().
-fn leafFocusable(comptime Blueprint: type) [leafCount(Blueprint)]bool {
-    if (@hasDecl(Blueprint, "is_pane")) {
-        return .{Blueprint.focusable};
-    }
+/// Generic depth-first tree-walker. Collects one value of type T per leaf pane,
+/// in the same left-to-right order as solve(). Ex must be a namespace with a
+/// single declaration `fn extract(comptime P: type) T` that returns the value
+/// for a leaf pane type P.
+fn leafCollect(
+    comptime T: type,
+    comptime Blueprint: type,
+    comptime Ex: type,
+) [leafCount(Blueprint)]T {
+    if (@hasDecl(Blueprint, "is_pane")) return .{Ex.extract(Blueprint)};
     if (!@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
         @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
-    var result: [leafCount(Blueprint)]bool = undefined;
+    var result: [leafCount(Blueprint)]T = undefined;
     var offset: usize = 0;
     inline for (Blueprint.children) |Child| {
         const count = comptime leafCount(Child);
-        const sub = comptime leafFocusable(Child);
+        const sub   = comptime leafCollect(T, Child, Ex);
         for (0..count) |j| result[offset + j] = sub[j];
         offset += count;
     }
     return result;
 }
 
-/// Walks the blueprint tree and returns a comptime array of border flags,
-/// one per leaf pane, in the same depth-first left-to-right order as solve().
-fn leafBorders(comptime Blueprint: type) [leafCount(Blueprint)]bool {
-    if (@hasDecl(Blueprint, "is_pane")) {
-        return .{Blueprint.border};
-    }
-    if (!@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
-        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
-    var result: [leafCount(Blueprint)]bool = undefined;
-    var offset: usize = 0;
-    inline for (Blueprint.children) |Child| {
-        const count = comptime leafCount(Child);
-        const sub = comptime leafBorders(Child);
-        for (0..count) |j| {
-            result[offset + j] = sub[j];
-        }
-        offset += count;
-    }
-    return result;
+/// Returns a comptime array of focusable flags, one per leaf pane.
+fn leafFocusable(comptime Blueprint: type) [leafCount(Blueprint)]bool {
+    return leafCollect(bool, Blueprint, struct {
+        fn extract(comptime P: type) bool { return P.focusable; }
+    });
 }
 
-/// Walks the blueprint tree and returns a comptime array of pane ids,
-/// one per leaf pane, in the same depth-first left-to-right order as solve().
+/// Returns a comptime array of border flags, one per leaf pane.
+fn leafBorders(comptime Blueprint: type) [leafCount(Blueprint)]bool {
+    return leafCollect(bool, Blueprint, struct {
+        fn extract(comptime P: type) bool { return P.border; }
+    });
+}
+
+/// Returns a comptime array of pane ids, one per leaf pane.
 fn leafIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
-    if (@hasDecl(Blueprint, "is_pane")) {
-        return .{Blueprint.id};
-    }
-    if (!@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
-        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
-    var result: [leafCount(Blueprint)][:0]const u8 = undefined;
-    var offset: usize = 0;
-    inline for (Blueprint.children) |Child| {
-        const count = comptime leafCount(Child);
-        const sub = comptime leafIds(Child);
-        for (0..count) |j| {
-            result[offset + j] = sub[j];
-        }
-        offset += count;
-    }
-    return result;
+    return leafCollect([:0]const u8, Blueprint, struct {
+        fn extract(comptime P: type) [:0]const u8 { return P.id; }
+    });
 }
 
 /// Walks the blueprint tree and returns a comptime array of domain ids, one per
