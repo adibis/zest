@@ -271,6 +271,66 @@ pub const Layout = struct {
         return @Enum(usize, .exhaustive, &ids, &vals);
     }
 
+    /// Returns a struct type holding all domain focus state for Blueprint.
+    /// One field per domain() node (a DomainFocusType), plus active_domain.
+    /// All fields are derived from the blueprint — adding a domain to the
+    /// blueprint adds it to this struct automatically.
+    ///
+    ///     const FocusState = Layout.focusStateType(layout);
+    ///     state.focus = Layout.focusStateInit(layout);
+    ///     state.focus.sidebar.is(.files)  // per-domain focus check
+    ///     state.focus.active_domain = .main  // switch active domain
+    pub fn focusStateType(comptime Blueprint: type) type {
+        @setEvalBranchQuota(100_000);
+        const count = comptime domainCount(Blueprint);
+        const ids   = comptime domainCollect(Blueprint);
+        const DomId = comptime domainIdType(Blueprint);
+        var names: [count + 1][]const u8 = undefined;
+        var types:  [count + 1]type = undefined;
+        var attrs:  [count + 1]std.builtin.Type.StructField.Attributes = undefined;
+        inline for (ids, 0..) |id, i| {
+            names[i] = id;
+            types[i] = domainFocusType(Blueprint, id);
+            attrs[i] = .{};
+        }
+        names[count] = "active_domain";
+        types[count] = DomId;
+        attrs[count] = .{};
+        return @Struct(.auto, null, &names, &types, &attrs);
+    }
+
+    /// Returns a default-initialized focusStateType(Blueprint).
+    /// Each domain stack is ready to use. The first domain in blueprint
+    /// depth-first order starts as the active domain.
+    pub fn focusStateInit(comptime Blueprint: type) focusStateType(Blueprint) {
+        const ids = comptime domainCollect(Blueprint);
+        var fs: focusStateType(Blueprint) = undefined;
+        inline for (ids) |id| {
+            @field(fs, id) = @TypeOf(@field(fs, id)).init();
+        }
+        fs.active_domain = @enumFromInt(0);
+        return fs;
+    }
+
+    /// Returns the *FocusStack for the currently active domain.
+    /// Use this in the activeFocus callback passed to App.run():
+    ///
+    ///     fn activeFocus(state: *State) *zest.FocusStack {
+    ///         return zest.Layout.focusStateActiveFocus(layout, &state.focus);
+    ///     }
+    pub fn focusStateActiveFocus(
+        comptime Blueprint: type,
+        fs: *focusStateType(Blueprint),
+    ) *FocusStack {
+        const ids   = comptime domainCollect(Blueprint);
+        const DomId = comptime domainIdType(Blueprint);
+        inline for (ids, 0..) |id, i| {
+            if (fs.active_domain == @as(DomId, @enumFromInt(i)))
+                return &@field(fs, id).stack;
+        }
+        unreachable;
+    }
+
     /// Solves Blueprint's layout within bounds and returns a named struct of
     /// Panels, one per leaf pane. Each Panel carries the resolved vaxis.Window
     /// and a focused bool stamped from ctx.
@@ -858,4 +918,104 @@ test "Layout.domainFocusType: set and is use typed panel enum, no integers" {
     // Advancing sidebar does not affect main domain.
     sf.set(.files);
     try std.testing.expect(mf.is(.showcase));
+}
+
+test "Layout.focusStateType: generates struct with one field per domain" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").hsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/blueprint.zig").Direction;
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "sidebar",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 25 },
+                .children  = &.{
+                    p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                },
+            }),
+            d(.{
+                .id        = "main",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "showcase", .size = .{ .fraction = 1 } }),
+                },
+            }),
+        },
+    });
+    const FS = Layout.focusStateType(B);
+    try std.testing.expect(@hasField(FS, "sidebar"));
+    try std.testing.expect(@hasField(FS, "main"));
+    try std.testing.expect(@hasField(FS, "active_domain"));
+}
+
+test "Layout.focusStateInit: all domains initialised, first domain active" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").hsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/blueprint.zig").Direction;
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "sidebar",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 25 },
+                .children  = &.{
+                    p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                },
+            }),
+            d(.{
+                .id        = "main",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "showcase", .size = .{ .fraction = 1 } }),
+                },
+            }),
+        },
+    });
+    var fs = Layout.focusStateInit(B);
+    // First domain (sidebar) is active by default.
+    try std.testing.expectEqual(@as(Layout.domainIdType(B), .sidebar), fs.active_domain);
+    // Domain stacks start at panel index 0.
+    try std.testing.expect(fs.sidebar.is(.files));
+    try std.testing.expect(fs.main.is(.showcase));
+}
+
+test "Layout.focusStateActiveFocus: returns stack for active domain" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").hsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/blueprint.zig").Direction;
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "sidebar",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 25 },
+                .children  = &.{
+                    p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                },
+            }),
+            d(.{
+                .id        = "main",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "showcase", .size = .{ .fraction = 1 } }),
+                },
+            }),
+        },
+    });
+    var fs = Layout.focusStateInit(B);
+    // Starts on sidebar: activeFocus returns &fs.sidebar.stack.
+    try std.testing.expectEqual(&fs.sidebar.stack, Layout.focusStateActiveFocus(B, &fs));
+    // Switch to main: activeFocus returns &fs.main.stack.
+    fs.active_domain = .main;
+    try std.testing.expectEqual(&fs.main.stack, Layout.focusStateActiveFocus(B, &fs));
 }
