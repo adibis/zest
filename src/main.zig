@@ -210,11 +210,9 @@ fn draw(state: *State, win: vaxis.Window) void {
     else
         zest.catppuccin_latte;
 
-    const sidebar_focus: ?*zest.FocusStack = if (state.focus.active_domain == .sidebar) &state.focus.sidebar.stack else null;
-    const main_focus:    ?*zest.FocusStack = if (state.focus.active_domain == .main)    &state.focus.main.stack    else null;
-    const p = zest.Layout.panels(layout, win,
+    const p = zest.Layout.panelsFromState(layout, win,
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
-        .{ .sidebar = sidebar_focus, .main = main_focus });
+        &state.focus);
 
     zest.Text.draw(p.header.win, "zest demo", zest.DefaultStyle{ .fg = .secondary, .text = .{ .bold = true } }, theme);
 

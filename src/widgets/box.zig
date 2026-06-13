@@ -396,6 +396,53 @@ pub const Layout = struct {
         }
         return result;
     }
+
+    /// Convenience wrapper around panels() for blueprints whose focus is
+    /// fully captured by a FocusStateType. Computes the per-domain
+    /// "is this the active domain?" check internally, so callers don't
+    /// have to write an `if (active_domain == .X) &stack else null`
+    /// conditional at every site.
+    ///
+    /// Panes outside any domain always report focused = false in this
+    /// API; use the lower-level panels() with .{ .focus = … } if you
+    /// need global focus state alongside domain-scoped focus.
+    pub fn panelsFromState(
+        comptime Blueprint: type,
+        root_win: vaxis.Window,
+        bounds: Rect,
+        fs: *const FocusStateType(Blueprint),
+    ) PanelsType(Blueprint) {
+        var rects: [leafCount(Blueprint)]Rect = undefined;
+        solveInto(Blueprint, bounds, &rects);
+        const borders      = comptime leafBorders(Blueprint);
+        const focusables   = comptime leafFocusable(Blueprint);
+        const ids          = comptime leafIds(Blueprint);
+        const domain_ids   = comptime leafDomains(Blueprint);
+        const domain_fidxs = comptime leafDomainFocusableIndices(Blueprint);
+        const DomId = comptime DomainIdType(Blueprint);
+        var result: PanelsType(Blueprint) = undefined;
+        inline for (ids, 0..) |id, i| {
+            const r = rects[i];
+            const dom = comptime domain_ids[i];
+            const focused: bool = blk: {
+                if (!focusables[i]) break :blk false;
+                if (comptime dom.len == 0) break :blk false;
+                if (fs.active_domain != @field(DomId, dom)) break :blk false;
+                break :blk @field(fs, dom).stack.activeIndex() == domain_fidxs[i];
+            };
+            @field(result, id) = Panel{
+                .win = root_win.child(.{
+                    .x_off = @intCast(r.x),
+                    .y_off = @intCast(r.y),
+                    .width  = r.width,
+                    .height = r.height,
+                    .border = if (borders[i]) .{ .where = .all } else .{},
+                }),
+                .focused = focused,
+            };
+        }
+        return result;
+    }
 };
 
 test "Layout.panels: returns one panel per leaf pane, no borders" {
@@ -1021,4 +1068,62 @@ test "Layout.focusStateActiveFocus: returns stack for active domain" {
     // Switch to main: activeFocus returns &fs.main.stack.
     fs.active_domain = .main;
     try std.testing.expectEqual(&fs.main.stack, Layout.focusStateActiveFocus(B, &fs));
+}
+
+test "Layout.panelsFromState: only the active domain's selected pane is focused" {
+    const p  = @import("../layout/blueprint.zig").pane;
+    const hs = @import("../layout/blueprint.zig").vsplit;
+    const d  = @import("../layout/blueprint.zig").domain;
+    const Direction = @import("../layout/blueprint.zig").Direction;
+
+    const B = hs(.{
+        .children = &.{
+            d(.{
+                .id        = "sidebar",
+                .direction = Direction.vertical,
+                .size      = .{ .fixed = 25 },
+                .children  = &.{
+                    p(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                },
+            }),
+            d(.{
+                .id        = "main",
+                .direction = Direction.vertical,
+                .size      = .{ .fraction = 1 },
+                .children  = &.{
+                    p(.{ .id = "diff",   .size = .{ .fraction = 1 } }),
+                    p(.{ .id = "cmdlog", .size = .{ .fixed = 5 }, .focusable = false }),
+                },
+            }),
+        },
+    });
+
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 40, .cols = 80, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const root_win = vaxis.Window{
+        .x_off = 0, .y_off = 0, .parent_x_off = 0, .parent_y_off = 0,
+        .width = screen.width, .height = screen.height, .screen = &screen,
+    };
+    const bounds = Rect{ .x = 0, .y = 0, .width = 80, .height = 40 };
+
+    var fs = Layout.focusStateInit(B);
+    // sidebar active, index 0: files focused; main's diff is NOT focused
+    // (even though main's stack also sits at index 0).
+    var result = Layout.panelsFromState(B, root_win, bounds, &fs);
+    try std.testing.expect(result.files.focused);
+    try std.testing.expect(!result.branches.focused);
+    try std.testing.expect(!result.diff.focused);
+    try std.testing.expect(!result.cmdlog.focused);
+
+    // Advance sidebar then switch domain — only the new active stack stamps.
+    fs.sidebar.set(.branches);
+    fs.active_domain = .main;
+    result = Layout.panelsFromState(B, root_win, bounds, &fs);
+    try std.testing.expect(!result.files.focused);
+    try std.testing.expect(!result.branches.focused); // sidebar is no longer active
+    try std.testing.expect(result.diff.focused);
+    try std.testing.expect(!result.cmdlog.focused);
 }
