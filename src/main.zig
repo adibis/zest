@@ -84,7 +84,7 @@ const DiffColor = enum {
 const diff_theme: zest.Theme(DiffColor) = .{
     .colors = std.EnumArray(DiffColor, vaxis.Color).init(.{
         .default = .default,
-        .chrome  = .{ .index = 10 },
+        .chrome  = .default,
         .label   = .{ .index = 2  },
         .added   = .{ .index = 2  },
         .removed = .{ .index = 9  },
@@ -247,10 +247,6 @@ fn update(state: *State, event: zest.Event, win: vaxis.Window, alloc: std.mem.Al
                     &state.main.stack
                 else
                     &state.sidebar.stack;
-                return draw(state, win);
-            }
-            if (key.matches(vaxis.Key.tab, .{})) {
-                state.active_focus.top().next();
                 return draw(state, win);
             }
             switch (key.codepoint) {
