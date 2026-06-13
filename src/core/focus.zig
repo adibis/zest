@@ -40,7 +40,8 @@ pub const Focus = struct {
     }
 
     /// Returns true if the slot named `id` is currently active.
-    /// `ids` is the ordered list of focusable slot ids, e.g. &.{ "sidebar", "header", "body" }.
+    /// `ids` must be the ordered list of FOCUSABLE slot ids only — non-focusable
+    /// panes must be excluded, or positions will not match Focus.index.
     pub fn is(self: Focus, comptime id: [:0]const u8, comptime ids: []const [:0]const u8) bool {
         inline for (ids, 0..) |slot_id, i| {
             if (comptime std.mem.eql(u8, slot_id, id)) return self.index == i;

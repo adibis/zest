@@ -202,9 +202,10 @@ pub const Layout = struct {
         return focusableCountInDomain(Blueprint, domain_id);
     }
 
-    /// Returns a comptime array of leaf pane IDs in depth-first order.
-    /// Useful for deriving the ids list passed to Focus.is() without restating
-    /// pane names that are already in the blueprint.
+    /// Returns a comptime array of ALL leaf pane IDs in depth-first order,
+    /// including non-focusable panes. Not safe to pass to Focus.is() — that
+    /// function requires a focusable-only list whose positions match Focus.index.
+    /// Use domainFocusType for type-safe focus navigation.
     pub fn panelIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
         return leafIds(Blueprint);
     }
