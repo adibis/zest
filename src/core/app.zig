@@ -8,6 +8,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const FrameArena = @import("memory.zig").FrameArena;
+const Focus      = @import("focus.zig").Focus;
 const FocusStack = @import("focus.zig").FocusStack;
 
 pub const Event = union(enum) {
@@ -102,18 +103,12 @@ pub const App = struct {
             // Tab and Shift-Tab are consumed by the framework: they advance or
             // retreat focus, then fire focus_changed so update() re-renders with
             // the new focus state without pretending a resize occurred.
-            if (event == .key_press) {
-                const key = event.key_press;
-                const is_tab       = key.matches(vaxis.Key.tab, .{});
-                const is_shift_tab = key.matches(vaxis.Key.tab, .{ .shift = true });
-                if (is_tab or is_shift_tab) {
-                    if (is_tab) focus.*.top().next() else focus.*.top().prev();
-                    const win = self.vx.window();
-                    const result = update(ctx, .focus_changed, win, self.frame_arena.allocator());
-                    if (result == .quit) break;
-                    if (result == .redraw) try self.vx.render(self.tty.writer());
-                    continue;
-                }
+            if (tabConsumed(event, focus)) {
+                const win = self.vx.window();
+                const result = update(ctx, .focus_changed, win, self.frame_arena.allocator());
+                if (result == .quit) break;
+                if (result == .redraw) try self.vx.render(self.tty.writer());
+                continue;
             }
 
             const win = self.vx.window();
@@ -126,6 +121,18 @@ pub const App = struct {
     }
 };
 
+/// Returns true and advances or retreats focus if event is Tab or Shift-Tab.
+/// Returns false and leaves focus untouched for all other events.
+fn tabConsumed(event: Event, focus: **FocusStack) bool {
+    if (event != .key_press) return false;
+    const key = event.key_press;
+    const is_tab       = key.matches(vaxis.Key.tab, .{});
+    const is_shift_tab = key.matches(vaxis.Key.tab, .{ .shift = true });
+    if (!is_tab and !is_shift_tab) return false;
+    if (is_tab) focus.*.top().next() else focus.*.top().prev();
+    return true;
+}
+
 test "App: init and deinit" {
     const io = std.testing.io;
     var env_map = try std.testing.environ.createMap(std.testing.allocator);
@@ -134,4 +141,36 @@ test "App: init and deinit" {
     var tty_buf: [64]u8 = undefined;
     var app = try App.init(io, std.testing.allocator, &env_map, &tty_buf);
     defer app.deinit();
+}
+
+test "tabConsumed: Tab advances focus and returns true" {
+    var fs = FocusStack.init(Focus.init(3));
+    var focus = &fs;
+    const tab_key: Event = .{ .key_press = .{ .codepoint = vaxis.Key.tab } };
+    try std.testing.expect(tabConsumed(tab_key, &focus));
+    try std.testing.expectEqual(1, fs.top().active());
+}
+
+test "tabConsumed: Shift-Tab retreats focus and returns true" {
+    var fs = FocusStack.init(Focus.init(3));
+    fs.top().set(2);
+    var focus = &fs;
+    const shift_tab: Event = .{ .key_press = .{ .codepoint = vaxis.Key.tab, .mods = .{ .shift = true } } };
+    try std.testing.expect(tabConsumed(shift_tab, &focus));
+    try std.testing.expectEqual(1, fs.top().active());
+}
+
+test "tabConsumed: non-Tab key returns false and leaves focus unchanged" {
+    var fs = FocusStack.init(Focus.init(3));
+    var focus = &fs;
+    const j_key: Event = .{ .key_press = .{ .codepoint = 'j' } };
+    try std.testing.expect(!tabConsumed(j_key, &focus));
+    try std.testing.expectEqual(0, fs.top().active());
+}
+
+test "tabConsumed: non-key event returns false and leaves focus unchanged" {
+    var fs = FocusStack.init(Focus.init(3));
+    var focus = &fs;
+    try std.testing.expect(!tabConsumed(.focus_in, &focus));
+    try std.testing.expectEqual(0, fs.top().active());
 }
