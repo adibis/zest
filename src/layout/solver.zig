@@ -572,6 +572,42 @@ test "solve: nested hsplit/vsplit — sidebar + header/body produces 3 leaf rect
     try std.testing.expectEqual(35, rects[2].height);
 }
 
+test "solve: zero-width bounds — all rects have zero width without panic" {
+    const p  = @import("blueprint.zig").pane;
+    const hs = @import("blueprint.zig").hsplit;
+    const B = hs(.{
+        .children = &.{
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 0, .height = 24 });
+    try std.testing.expectEqual(0, rects[0].width);
+    try std.testing.expectEqual(0, rects[1].width);
+}
+
+test "solve: zero-height bounds — all rects have zero height without panic" {
+    const p  = @import("blueprint.zig").pane;
+    const vs = @import("blueprint.zig").vsplit;
+    const B = vs(.{
+        .children = &.{
+            p(.{ .size = .{ .fraction = 1 } }),
+            p(.{ .size = .{ .fraction = 1 } }),
+        },
+    });
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const rects = try solve(arena.allocator(), B, Rect{ .x = 0, .y = 0, .width = 80, .height = 0 });
+    try std.testing.expectEqual(0, rects[0].height);
+    try std.testing.expectEqual(0, rects[1].height);
+}
+
 test "solve: percent + fraction with non-zero origin — child x/y are absolute" {
     const p  = @import("blueprint.zig").pane;
     const hs = @import("blueprint.zig").hsplit;
