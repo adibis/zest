@@ -327,13 +327,11 @@ pub const Layout = struct {
         comptime Blueprint: type,
         fs: *FocusStateType(Blueprint),
     ) *FocusStack {
-        const ids   = comptime domainCollect(Blueprint);
-        const DomId = comptime DomainIdType(Blueprint);
-        inline for (ids, 0..) |id, i| {
-            if (fs.active_domain == @as(DomId, @enumFromInt(i)))
-                return &@field(fs, id).stack;
-        }
-        unreachable;
+        // Switch on the exhaustive enum tag directly: the compiler proves
+        // every domain is handled, so no fallthrough/unreachable is needed.
+        return switch (fs.active_domain) {
+            inline else => |tag| &@field(fs, @tagName(tag)).stack,
+        };
     }
 
     /// Solves Blueprint's layout within bounds and returns a named struct of
