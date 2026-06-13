@@ -43,6 +43,8 @@ fn leafFocusable(comptime Blueprint: type) [leafCount(Blueprint)]bool {
     if (@hasDecl(Blueprint, "is_pane")) {
         return .{Blueprint.focusable};
     }
+    if (!@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
+        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
     var result: [leafCount(Blueprint)]bool = undefined;
     var offset: usize = 0;
     inline for (Blueprint.children) |Child| {
@@ -60,6 +62,8 @@ fn leafBorders(comptime Blueprint: type) [leafCount(Blueprint)]bool {
     if (@hasDecl(Blueprint, "is_pane")) {
         return .{Blueprint.border};
     }
+    if (!@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
+        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
     var result: [leafCount(Blueprint)]bool = undefined;
     var offset: usize = 0;
     inline for (Blueprint.children) |Child| {
@@ -79,6 +83,8 @@ fn leafIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
     if (@hasDecl(Blueprint, "is_pane")) {
         return .{Blueprint.id};
     }
+    if (!@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
+        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
     var result: [leafCount(Blueprint)][:0]const u8 = undefined;
     var offset: usize = 0;
     inline for (Blueprint.children) |Child| {
