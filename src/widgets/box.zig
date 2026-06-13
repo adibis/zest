@@ -188,7 +188,7 @@ fn focusableCountInDomain(comptime Blueprint: type, comptime target: [:0]const u
 pub const Layout = struct {
     /// Returns the number of focusable leaf panes in Blueprint — use this to
     /// initialize a FocusStack so Tab cycling never lands on display-only panes.
-    pub fn panelCount(comptime Blueprint: type) usize {
+    fn focusablePanelCount(comptime Blueprint: type) usize {
         return focusableLeafCount(Blueprint);
     }
 
@@ -196,9 +196,9 @@ pub const Layout = struct {
     /// to initialize a per-domain FocusStack when the blueprint has domain() nodes.
     ///
     ///   state.focus_sidebar = FocusStack.init(Focus.init(
-    ///       Layout.panelCountInDomain(layout, "sidebar"),
+    ///       Layout.focusablePanelCountInDomain(layout, "sidebar"),
     ///   ));
-    pub fn panelCountInDomain(comptime Blueprint: type, comptime domain_id: [:0]const u8) usize {
+    fn focusablePanelCountInDomain(comptime Blueprint: type, comptime domain_id: [:0]const u8) usize {
         return focusableCountInDomain(Blueprint, domain_id);
     }
 
@@ -430,7 +430,7 @@ test "PanelsType: nested blueprint produces one field per leaf pane" {
     try std.testing.expectEqual(3, @typeInfo(W).@"struct".fields.len);
 }
 
-test "Layout.panelCount: excludes non-focusable panes" {
+test "Layout.focusablePanelCount: excludes non-focusable panes" {
     const p  = @import("../layout/blueprint.zig").pane;
     const vs = @import("../layout/blueprint.zig").vsplit;
     const B = vs(.{
@@ -441,7 +441,7 @@ test "Layout.panelCount: excludes non-focusable panes" {
             p(.{ .id = "footer", .size = .{ .fixed = 1 }, .focusable = false }),
         },
     });
-    try std.testing.expectEqual(2, Layout.panelCount(B));
+    try std.testing.expectEqual(2, Layout.focusablePanelCount(B));
 }
 
 test "Layout.panels: non-focusable pane always has focused = false" {
@@ -465,7 +465,7 @@ test "Layout.panels: non-focusable pane always has focused = false" {
 
     // Even with focus index 0 active, the non-focusable pane reports false.
     var focus = @import("../core/focus.zig").FocusStack.init(
-        @import("../core/focus.zig").Focus.init(Layout.panelCount(B)),
+        @import("../core/focus.zig").Focus.init(Layout.focusablePanelCount(B)),
     );
     const result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 10 }, .{ .focus = &focus });
     try std.testing.expect(!result.chrome.focused);
@@ -493,7 +493,7 @@ test "Layout.panels: focus index maps to focusable panes only, skipping non-focu
     };
 
     var focus = @import("../core/focus.zig").FocusStack.init(
-        @import("../core/focus.zig").Focus.init(Layout.panelCount(B)),
+        @import("../core/focus.zig").Focus.init(Layout.focusablePanelCount(B)),
     );
     // Index 0 → pane "a" (first focusable).
     var result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 20 }, .{ .focus = &focus });
@@ -549,8 +549,8 @@ test "Layout.panels: domain focus index stamps correct pane in each domain" {
         .width = screen.width, .height = screen.height, .screen = &screen,
     };
 
-    var fs_sidebar = FocusStack_.init(Focus_.init(Layout.panelCountInDomain(B, "sidebar")));
-    var fs_main    = FocusStack_.init(Focus_.init(Layout.panelCountInDomain(B, "main")));
+    var fs_sidebar = FocusStack_.init(Focus_.init(Layout.focusablePanelCountInDomain(B, "sidebar")));
+    var fs_main    = FocusStack_.init(Focus_.init(Layout.focusablePanelCountInDomain(B, "main")));
 
     // Each domain stamps its own active pane independently.
     // Both domains start at index 0 → files and diff are focused simultaneously.
@@ -612,8 +612,8 @@ test "Layout.panels: domain focus never bleeds across domain boundaries" {
     };
 
     // left domain index 1, right domain index 1 — each domain has its own active.
-    var fs_left  = FocusStack_.init(Focus_.init(Layout.panelCountInDomain(B, "left")));
-    var fs_right = FocusStack_.init(Focus_.init(Layout.panelCountInDomain(B, "right")));
+    var fs_left  = FocusStack_.init(Focus_.init(Layout.focusablePanelCountInDomain(B, "left")));
+    var fs_right = FocusStack_.init(Focus_.init(Layout.focusablePanelCountInDomain(B, "right")));
     fs_left.set(1);
     fs_right.set(1);
 
@@ -649,7 +649,7 @@ test "Layout.panels: backward compat — blueprint without domains accepts ctx.f
         .width = screen.width, .height = screen.height, .screen = &screen,
     };
 
-    var focus = FocusStack_.init(Focus_.init(Layout.panelCount(B)));
+    var focus = FocusStack_.init(Focus_.init(Layout.focusablePanelCount(B)));
     var result = Layout.panels(B, root_win, Rect{ .x = 0, .y = 0, .width = 80, .height = 20 },
         .{ .focus = &focus });
     try std.testing.expect(result.top.focused);
@@ -662,7 +662,7 @@ test "Layout.panels: backward compat — blueprint without domains accepts ctx.f
     try std.testing.expect(result.bottom.focused);
 }
 
-test "Layout.panelCountInDomain: counts only focusable panes in the named domain" {
+test "Layout.focusablePanelCountInDomain: counts only focusable panes in the named domain" {
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").hsplit;
     const d  = @import("../layout/blueprint.zig").domain;
@@ -690,11 +690,11 @@ test "Layout.panelCountInDomain: counts only focusable panes in the named domain
             }),
         },
     });
-    try std.testing.expectEqual(3, Layout.panelCountInDomain(B, "sidebar"));
-    try std.testing.expectEqual(1, Layout.panelCountInDomain(B, "main"));
+    try std.testing.expectEqual(3, Layout.focusablePanelCountInDomain(B, "sidebar"));
+    try std.testing.expectEqual(1, Layout.focusablePanelCountInDomain(B, "main"));
 }
 
-test "Layout.panelCountInDomain: non-focusable panes inside domain are excluded" {
+test "Layout.focusablePanelCountInDomain: non-focusable panes inside domain are excluded" {
     const p  = @import("../layout/blueprint.zig").pane;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/slot.zig").Direction;
@@ -707,7 +707,7 @@ test "Layout.panelCountInDomain: non-focusable panes inside domain are excluded"
             p(.{ .id = "b",      .size = .{ .fraction = 1 } }),
         },
     });
-    try std.testing.expectEqual(2, Layout.panelCountInDomain(B, "col"));
+    try std.testing.expectEqual(2, Layout.focusablePanelCountInDomain(B, "col"));
 }
 
 test "leafDomains: pane outside any domain gets empty string" {
