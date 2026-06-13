@@ -58,7 +58,6 @@ const files_items = [_][]const u8{
     "src/layout/blueprint.zig",
     "src/layout/rect.zig",
     "src/layout/size.zig",
-    "src/layout/slot.zig",
     "src/layout/solver.zig",
     "src/widgets/box.zig",
     "src/widgets/list.zig",

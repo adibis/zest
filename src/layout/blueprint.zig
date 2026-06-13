@@ -25,7 +25,12 @@
 
 const std = @import("std");
 const Size = @import("size.zig").Size;
-const Direction = @import("slot.zig").Direction;
+
+/// Which axis children are stacked along inside a split or domain node.
+pub const Direction = enum {
+    horizontal, // children placed left to right, each consuming width
+    vertical,   // children placed top to bottom, each consuming height
+};
 
 /// Identifies which kind of blueprint node a type represents.
 /// All node types produced by pane(), hsplit(), vsplit(), and domain() carry
@@ -281,4 +286,19 @@ test "domain: children have node_kind .pane" {
         .children  = &.{pane(.{ .size = .{ .fixed = 10 } })},
     });
     try std.testing.expectEqual(NodeKind.pane, B.children[0].node_kind);
+}
+
+test "Direction: horizontal and vertical are distinct" {
+    try std.testing.expect(Direction.horizontal != Direction.vertical);
+}
+
+test "Direction: exhaustive switch compiles" {
+    // Verifies the enum has exactly these two values — if a third were added
+    // without an else branch, this test would fail to compile, catching the gap.
+    const d = Direction.horizontal;
+    const result: u8 = switch (d) {
+        .horizontal => 0,
+        .vertical   => 1,
+    };
+    try std.testing.expectEqual(0, result);
 }

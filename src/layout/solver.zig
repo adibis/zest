@@ -472,7 +472,7 @@ test "solve: single pane preserves non-zero origin" {
 test "leafCount: domain node counts all leaf panes inside it" {
     const p  = @import("blueprint.zig").pane;
     const d  = @import("blueprint.zig").domain;
-    const Direction = @import("slot.zig").Direction;
+    const Direction = @import("blueprint.zig").Direction;
     const B = d(.{
         .id        = "sidebar",
         .direction = Direction.vertical,
@@ -487,7 +487,7 @@ test "leafCount: domain node counts all leaf panes inside it" {
 test "focusableLeafCount: domain node counts only focusable panes" {
     const p  = @import("blueprint.zig").pane;
     const d  = @import("blueprint.zig").domain;
-    const Direction = @import("slot.zig").Direction;
+    const Direction = @import("blueprint.zig").Direction;
     const B = d(.{
         .id        = "sidebar",
         .direction = Direction.vertical,
@@ -503,7 +503,7 @@ test "solve: domain node produces same geometry as equivalent vsplit" {
     const p  = @import("blueprint.zig").pane;
     const d  = @import("blueprint.zig").domain;
     const vs = @import("blueprint.zig").vsplit;
-    const Direction = @import("slot.zig").Direction;
+    const Direction = @import("blueprint.zig").Direction;
 
     const WithDomain = d(.{
         .id        = "col",

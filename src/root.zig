@@ -13,7 +13,7 @@ pub const FrameArena = @import("core/memory.zig").FrameArena;
 
 pub const Rect = @import("layout/rect.zig").Rect;
 pub const Size = @import("layout/size.zig").Size;
-pub const Direction = @import("layout/slot.zig").Direction;
+pub const Direction = @import("layout/blueprint.zig").Direction;
 pub const pane = @import("layout/blueprint.zig").pane;
 pub const hsplit = @import("layout/blueprint.zig").hsplit;
 pub const vsplit = @import("layout/blueprint.zig").vsplit;
@@ -48,7 +48,6 @@ test {
     _ = @import("core/app.zig");
     _ = @import("layout/rect.zig");
     _ = @import("layout/size.zig");
-    _ = @import("layout/slot.zig");
     _ = @import("layout/blueprint.zig");
     _ = @import("layout/solver.zig");
     _ = @import("widgets/box.zig");

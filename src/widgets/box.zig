@@ -478,7 +478,7 @@ test "Layout.panels: domain focus index stamps correct pane in each domain" {
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").hsplit;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const FocusStack_ = @import("../core/focus.zig").FocusStack;
     const Focus_ = @import("../core/focus.zig").Focus;
 
@@ -540,7 +540,7 @@ test "Layout.panels: domain focus never bleeds across domain boundaries" {
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").hsplit;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const FocusStack_ = @import("../core/focus.zig").FocusStack;
     const Focus_ = @import("../core/focus.zig").Focus;
 
@@ -631,7 +631,7 @@ test "Layout.focusablePanelCountInDomain: counts only focusable panes in the nam
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").hsplit;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{
         .children = &.{
             d(.{
@@ -662,7 +662,7 @@ test "Layout.focusablePanelCountInDomain: counts only focusable panes in the nam
 test "Layout.focusablePanelCountInDomain: non-focusable panes inside domain are excluded" {
     const p  = @import("../layout/blueprint.zig").pane;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const B = d(.{
         .id        = "col",
         .direction = Direction.vertical,
@@ -692,7 +692,7 @@ test "leafDomains: pane outside any domain gets empty string" {
 test "leafDomains: pane directly inside domain gets that domain's id" {
     const p  = @import("../layout/blueprint.zig").pane;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const B = d(.{
         .id        = "sidebar",
         .direction = Direction.vertical,
@@ -710,7 +710,7 @@ test "leafDomains: split inside domain propagates domain id to its children" {
     const p  = @import("../layout/blueprint.zig").pane;
     const vs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const B = d(.{
         .id        = "sidebar",
         .direction = Direction.horizontal,
@@ -732,7 +732,7 @@ test "leafDomains: split inside domain propagates domain id to its children" {
 test "leafDomains: nested domains — inner id wins over outer" {
     const p  = @import("../layout/blueprint.zig").pane;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const B = d(.{
         .id        = "outer",
         .direction = Direction.horizontal,
@@ -757,7 +757,7 @@ test "leafDomains: mixed — some panes in domain, some outside" {
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").hsplit;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{
         .children = &.{
             d(.{
@@ -780,7 +780,7 @@ test "Layout.domainFocusType: set and is use typed panel enum, no integers" {
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").hsplit;
     const d  = @import("../layout/blueprint.zig").domain;
-    const Direction = @import("../layout/slot.zig").Direction;
+    const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{
         .children = &.{
             d(.{
