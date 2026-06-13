@@ -109,9 +109,9 @@ pub const App = struct {
                 if (is_tab or is_shift_tab) {
                     if (is_tab) focus.*.top().next() else focus.*.top().prev();
                     const win = self.vx.window();
-                    if (update(ctx, .focus_changed, win, self.frame_arena.allocator()) != .quit) {
-                        try self.vx.render(self.tty.writer());
-                    }
+                    const result = update(ctx, .focus_changed, win, self.frame_arena.allocator());
+                    if (result == .quit) break;
+                    if (result == .redraw) try self.vx.render(self.tty.writer());
                     continue;
                 }
             }
