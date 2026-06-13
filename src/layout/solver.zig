@@ -13,31 +13,31 @@ const Rect = @import("rect.zig").Rect;
 /// Non-focusable panes (focusable = false) are excluded. Use this to initialize
 /// a FocusStack so Tab cycling never lands on display-only panes.
 pub fn focusableLeafCount(comptime Blueprint: type) usize {
-    if (@hasDecl(Blueprint, "is_pane")) {
-        return if (Blueprint.focusable) 1 else 0;
-    }
-    if (@hasDecl(Blueprint, "is_split") or @hasDecl(Blueprint, "is_domain")) {
-        var count: usize = 0;
-        inline for (Blueprint.children) |Child| {
-            count += comptime focusableLeafCount(Child);
-        }
-        return count;
-    }
-    @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
+    if (!@hasDecl(Blueprint, "node_kind"))
+        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
+    return switch (Blueprint.node_kind) {
+        .pane => if (Blueprint.focusable) 1 else 0,
+        .split, .domain => blk: {
+            var count: usize = 0;
+            inline for (Blueprint.children) |Child| count += comptime focusableLeafCount(Child);
+            break :blk count;
+        },
+    };
 }
 
 /// Returns the total number of leaf panes in Blueprint's tree at comptime.
 /// The result is used to allocate exactly the right slice before recursing.
 pub fn leafCount(comptime Blueprint: type) usize {
-    if (@hasDecl(Blueprint, "is_pane")) return 1;
-    if (@hasDecl(Blueprint, "is_split") or @hasDecl(Blueprint, "is_domain")) {
-        var count: usize = 0;
-        inline for (Blueprint.children) |Child| {
-            count += comptime leafCount(Child);
-        }
-        return count;
-    }
-    @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
+    if (!@hasDecl(Blueprint, "node_kind"))
+        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
+    return switch (Blueprint.node_kind) {
+        .pane => 1,
+        .split, .domain => blk: {
+            var count: usize = 0;
+            inline for (Blueprint.children) |Child| count += comptime leafCount(Child);
+            break :blk count;
+        },
+    };
 }
 
 /// Resolves a comptime layout blueprint into a flat slice of Rects.
@@ -53,7 +53,7 @@ pub fn solve(
     comptime Blueprint: type,
     bounds: Rect,
 ) ![]Rect {
-    if (!@hasDecl(Blueprint, "is_pane") and !@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
+    if (!@hasDecl(Blueprint, "node_kind"))
         @compileError("solve: Blueprint must be a type returned by pane(), hsplit(), vsplit(), or domain()");
     const rects = try allocator.alloc(Rect, leafCount(Blueprint));
     solveInto(Blueprint, bounds, rects);
@@ -65,7 +65,7 @@ pub fn solve(
 /// leafCount(Blueprint) long. Prefer solve() when heap allocation is
 /// acceptable; call this directly with a stack buffer when it is not.
 pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
-    if (@hasDecl(Blueprint, "is_pane")) {
+    if (Blueprint.node_kind == .pane) {
         dst[0] = bounds;
         return;
     }

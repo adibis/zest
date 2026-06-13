@@ -27,6 +27,11 @@ const std = @import("std");
 const Size = @import("size.zig").Size;
 const Direction = @import("slot.zig").Direction;
 
+/// Identifies which kind of blueprint node a type represents.
+/// All node types produced by pane(), hsplit(), vsplit(), and domain() carry
+/// this as a comptime constant so dispatch sites can switch exhaustively.
+pub const NodeKind = enum { pane, split, domain };
+
 /// Returns a comptime leaf-node descriptor for the layout blueprint.
 ///
 /// pane is the only node type that produces output: each pane becomes a
@@ -48,7 +53,7 @@ pub fn pane(comptime opts: struct {
     focusable: bool = true,
 }) type {
     return struct {
-        pub const is_pane = true;
+        pub const node_kind: NodeKind = .pane;
         pub const size: Size = opts.size;
         pub const border: bool = opts.border;
         pub const id: [:0]const u8 = opts.id;
@@ -69,16 +74,9 @@ fn optsToSize(comptime s: anytype) Size {
     @compileError("size must be .{ .fixed = N }, .{ .fraction = N }, or .{ .percent = N }");
 }
 
-// TODO(design): The is_pane / is_split / is_domain boolean marker pattern
-// has no exhaustiveness guarantee. A type that accidentally declares both
-// is_pane and is_split would silently take the is_pane branch everywhere.
-// The correct fix is a single `node_kind: enum { pane, split, domain }`
-// field, dispatched via `switch (Blueprint.node_kind)` in the solver and
-// compositor. Defer until the custom widget state protocol is finalised and
-// we know whether new node kinds will be needed.
 fn splitImpl(comptime dir: Direction, comptime opts: anytype) type {
     return struct {
-        pub const is_split = true;
+        pub const node_kind: NodeKind = .split;
         pub const size: Size = if (@hasField(@TypeOf(opts), "size")) optsToSize(opts.size) else .{ .fraction = 1 };
         pub const direction: Direction = dir;
         pub const children = opts.children;
@@ -118,7 +116,7 @@ pub fn vsplit(comptime opts: anytype) type {
 /// are required fields; size defaults to fraction(1) when omitted.
 pub fn domain(comptime opts: anytype) type {
     return struct {
-        pub const is_domain                = true;
+        pub const node_kind: NodeKind      = .domain;
         pub const id:        [:0]const u8  = opts.id;
         pub const size:      Size          = if (@hasField(@TypeOf(opts), "size")) optsToSize(opts.size) else .{ .fraction = 1 };
         pub const direction: Direction     = opts.direction;
@@ -146,9 +144,9 @@ test "pane: explicit border = true is preserved" {
     try std.testing.expect(S.border);
 }
 
-test "pane: produced type has is_pane marker" {
+test "pane: node_kind is .pane" {
     const S = pane(.{ .size = .{ .fixed = 30 } });
-    try std.testing.expect(@hasDecl(S, "is_pane"));
+    try std.testing.expectEqual(NodeKind.pane, S.node_kind);
 }
 
 test "pane: size is preserved on the returned type" {
@@ -177,11 +175,11 @@ test "pane: two panes with different sizes carry different values" {
     try std.testing.expect(A.size.fixed != B.size.fixed);
 }
 
-test "hsplit: produced type has is_split marker" {
+test "hsplit: node_kind is .split" {
     const B = hsplit(.{
         .children = &.{pane(.{ .size = .{ .fixed = 30 } })},
     });
-    try std.testing.expect(@hasDecl(B, "is_split"));
+    try std.testing.expectEqual(NodeKind.split, B.node_kind);
 }
 
 test "hsplit: direction is horizontal" {
@@ -208,11 +206,11 @@ test "hsplit: children length is accessible" {
     try std.testing.expectEqual(2, B.children.len);
 }
 
-test "hsplit: children are identifiable as panes" {
+test "hsplit: children have node_kind .pane" {
     const B = hsplit(.{
         .children = &.{pane(.{ .size = .{ .fixed = 20 } })},
     });
-    try std.testing.expect(@hasDecl(B.children[0], "is_pane"));
+    try std.testing.expectEqual(NodeKind.pane, B.children[0].node_kind);
 }
 
 test "hsplit: size defaults to fraction(1) when omitted" {
@@ -230,13 +228,13 @@ test "hsplit: explicit size is preserved on the returned type" {
     try std.testing.expectEqual(40, B.size.fixed);
 }
 
-test "domain: produced type has is_domain marker" {
+test "domain: node_kind is .domain" {
     const B = domain(.{
         .id        = "sidebar",
         .direction = Direction.vertical,
         .children  = &.{pane(.{ .size = .{ .fraction = 1 } })},
     });
-    try std.testing.expect(@hasDecl(B, "is_domain"));
+    try std.testing.expectEqual(NodeKind.domain, B.node_kind);
 }
 
 test "domain: id is preserved on the returned type" {
@@ -276,11 +274,11 @@ test "domain: explicit size is preserved on the returned type" {
     try std.testing.expectEqual(25, B.size.fixed);
 }
 
-test "domain: children are identifiable as panes" {
+test "domain: children have node_kind .pane" {
     const B = domain(.{
         .id        = "main",
         .direction = Direction.vertical,
         .children  = &.{pane(.{ .size = .{ .fixed = 10 } })},
     });
-    try std.testing.expect(@hasDecl(B.children[0], "is_pane"));
+    try std.testing.expectEqual(NodeKind.pane, B.children[0].node_kind);
 }

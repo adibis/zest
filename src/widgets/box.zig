@@ -44,9 +44,9 @@ fn leafCollect(
     comptime Blueprint: type,
     comptime Ex: type,
 ) [leafCount(Blueprint)]T {
-    if (@hasDecl(Blueprint, "is_pane")) return .{Ex.extract(Blueprint)};
-    if (!@hasDecl(Blueprint, "is_split") and !@hasDecl(Blueprint, "is_domain"))
+    if (!@hasDecl(Blueprint, "node_kind"))
         @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
+    if (Blueprint.node_kind == .pane) return .{Ex.extract(Blueprint)};
     var result: [leafCount(Blueprint)]T = undefined;
     var offset: usize = 0;
     inline for (Blueprint.children) |Child| {
@@ -83,10 +83,8 @@ fn leafIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
 /// leaf pane, in depth-first left-to-right order. Each entry is the id of the
 /// nearest enclosing domain() node, or "" if the pane is not inside any domain.
 fn leafDomainsInner(comptime Blueprint: type, comptime current: [:0]const u8) [leafCount(Blueprint)][:0]const u8 {
-    if (@hasDecl(Blueprint, "is_pane")) {
-        return .{current};
-    }
-    const next: [:0]const u8 = if (@hasDecl(Blueprint, "is_domain")) Blueprint.id else current;
+    if (Blueprint.node_kind == .pane) return .{current};
+    const next: [:0]const u8 = if (Blueprint.node_kind == .domain) Blueprint.id else current;
     var result: [leafCount(Blueprint)][:0]const u8 = undefined;
     var offset: usize = 0;
     inline for (Blueprint.children) |Child| {
