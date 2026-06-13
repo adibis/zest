@@ -63,7 +63,11 @@ pub const App = struct {
         self.frame_arena.deinit();
     }
 
-    /// Run the event loop. `ctx` is passed to every `update` and `draw` call.
+    /// Run the event loop. `ctx` is passed to every callback.
+    ///
+    /// `activeFocus` returns the FocusStack that Tab/Shift-Tab should cycle.
+    /// Called on every Tab event, so switching domains in `update` is reflected
+    /// immediately on the next Tab press — no stale pointer possible.
     ///
     /// `update` receives the event and a per-frame allocator. It must mutate
     /// state and return `.redraw`, `.idle`, or `.quit`. It must never render —
@@ -71,14 +75,10 @@ pub const App = struct {
     ///
     /// `draw` receives the root vaxis.Window and renders the current state.
     /// The loop calls `draw` only when `update` returns `.redraw`.
-    ///
-    /// `focus` is a pointer-to-pointer so multi-domain apps can redirect it:
-    /// keep one FocusStack per domain, store `var active: *FocusStack` in your
-    /// state, and update it in `update` when switching domains.
     pub fn run(
         self: *App,
         ctx: anytype,
-        focus: **FocusStack,
+        comptime activeFocus: fn (@TypeOf(ctx)) *FocusStack,
         comptime update: fn (@TypeOf(ctx), Event, std.mem.Allocator) UpdateResult,
         comptime draw: fn (@TypeOf(ctx), vaxis.Window) void,
     ) !void {
@@ -109,7 +109,7 @@ pub const App = struct {
             // Tab and Shift-Tab are consumed by the framework: they advance or
             // retreat focus, then fire focus_changed so update() re-renders with
             // the new focus state without pretending a resize occurred.
-            if (tabConsumed(event, focus)) {
+            if (tabConsumed(event, activeFocus(ctx))) {
                 const result = update(ctx, .focus_changed, self.frame_arena.allocator());
                 if (result == .quit) break;
                 if (result == .redraw) {
@@ -133,13 +133,13 @@ pub const App = struct {
 
 /// Returns true and advances or retreats focus if event is Tab or Shift-Tab.
 /// Returns false and leaves focus untouched for all other events.
-fn tabConsumed(event: Event, focus: **FocusStack) bool {
+fn tabConsumed(event: Event, focus: *FocusStack) bool {
     if (event != .key_press) return false;
     const key = event.key_press;
     const is_tab       = key.matches(vaxis.Key.tab, .{});
     const is_shift_tab = key.matches(vaxis.Key.tab, .{ .shift = true });
     if (!is_tab and !is_shift_tab) return false;
-    if (is_tab) focus.*.top().next() else focus.*.top().prev();
+    if (is_tab) focus.top().next() else focus.top().prev();
     return true;
 }
 
@@ -155,32 +155,28 @@ test "App: init and deinit" {
 
 test "tabConsumed: Tab advances focus and returns true" {
     var fs = FocusStack.init(Focus.init(3));
-    var focus = &fs;
     const tab_key: Event = .{ .key_press = .{ .codepoint = vaxis.Key.tab } };
-    try std.testing.expect(tabConsumed(tab_key, &focus));
+    try std.testing.expect(tabConsumed(tab_key, &fs));
     try std.testing.expectEqual(1, fs.top().active());
 }
 
 test "tabConsumed: Shift-Tab retreats focus and returns true" {
     var fs = FocusStack.init(Focus.init(3));
     fs.top().set(2);
-    var focus = &fs;
     const shift_tab: Event = .{ .key_press = .{ .codepoint = vaxis.Key.tab, .mods = .{ .shift = true } } };
-    try std.testing.expect(tabConsumed(shift_tab, &focus));
+    try std.testing.expect(tabConsumed(shift_tab, &fs));
     try std.testing.expectEqual(1, fs.top().active());
 }
 
 test "tabConsumed: non-Tab key returns false and leaves focus unchanged" {
     var fs = FocusStack.init(Focus.init(3));
-    var focus = &fs;
     const j_key: Event = .{ .key_press = .{ .codepoint = 'j' } };
-    try std.testing.expect(!tabConsumed(j_key, &focus));
+    try std.testing.expect(!tabConsumed(j_key, &fs));
     try std.testing.expectEqual(0, fs.top().active());
 }
 
 test "tabConsumed: non-key event returns false and leaves focus unchanged" {
     var fs = FocusStack.init(Focus.init(3));
-    var focus = &fs;
-    try std.testing.expect(!tabConsumed(.focus_in, &focus));
+    try std.testing.expect(!tabConsumed(.focus_in, &fs));
     try std.testing.expectEqual(0, fs.top().active());
 }

@@ -48,6 +48,7 @@ const layout = zest.vsplit(.{
 
 const SidebarFocus = zest.Layout.domainFocusType(layout, "sidebar");
 const MainFocus    = zest.Layout.domainFocusType(layout, "main");
+const DomainId     = zest.Layout.domainIdType(layout);
 
 const files_items = [_][]const u8{
     "src/main.zig",
@@ -101,12 +102,19 @@ fn diffStyleBold(fg: ?DiffColor) vaxis.Cell.Style {
 // --- State -------------------------------------------------------------------
 
 const State = struct {
-    sidebar:      SidebarFocus,
-    main:         MainFocus,
-    active_focus: *zest.FocusStack,
-    files_list:   zest.DefaultList,
-    color_scheme: vaxis.Color.Scheme,
+    sidebar:       SidebarFocus,
+    main:          MainFocus,
+    active_domain: DomainId,
+    files_list:    zest.DefaultList,
+    color_scheme:  vaxis.Color.Scheme,
 };
+
+fn activeFocus(state: *State) *zest.FocusStack {
+    return switch (state.active_domain) {
+        .sidebar => &state.sidebar.stack,
+        .main    => &state.main.stack,
+    };
+}
 
 // --- Draw --------------------------------------------------------------------
 
@@ -209,8 +217,8 @@ fn draw(state: *State, win: vaxis.Window) void {
     else
         zest.catppuccin_latte;
 
-    const sidebar_focus: ?*zest.FocusStack = if (state.active_focus == &state.sidebar.stack) &state.sidebar.stack else null;
-    const main_focus:    ?*zest.FocusStack = if (state.active_focus == &state.main.stack)    &state.main.stack    else null;
+    const sidebar_focus: ?*zest.FocusStack = if (state.active_domain == .sidebar) &state.sidebar.stack else null;
+    const main_focus:    ?*zest.FocusStack = if (state.active_domain == .main)    &state.main.stack    else null;
     const p = zest.Layout.panels(layout, win,
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
         .{ .sidebar = sidebar_focus, .main = main_focus });
@@ -241,25 +249,22 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
         .key_press => |key| {
             if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
             if (key.matches('w', .{ .ctrl = true })) {
-                state.active_focus = if (state.active_focus == &state.sidebar.stack)
-                    &state.main.stack
-                else
-                    &state.sidebar.stack;
+                state.active_domain = if (state.active_domain == .sidebar) .main else .sidebar;
                 return .redraw;
             }
             switch (key.codepoint) {
                 'j', 'k', vaxis.Key.down, vaxis.Key.up => {
-                    if (state.active_focus == &state.sidebar.stack and state.sidebar.is(.files)) {
+                    if (state.active_domain == .sidebar and state.sidebar.is(.files)) {
                         state.files_list.handleKey(key, files_items.len);
                     }
                     return .redraw;
                 },
                 '0' => {
-                    state.active_focus = &state.main.stack;
+                    state.active_domain = .main;
                     state.main.set(.showcase);
                 },
                 '1'...'4' => |ch| {
-                    state.active_focus = &state.sidebar.stack;
+                    state.active_domain = .sidebar;
                     const idx: usize = @intCast(ch - '1');
                     state.sidebar.set(@enumFromInt(idx));
                 },
@@ -282,11 +287,11 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     var state: State = undefined;
-    state.sidebar      = SidebarFocus.init();
-    state.main         = MainFocus.init();
-    state.active_focus = &state.sidebar.stack;
-    state.color_scheme = .dark;
-    state.files_list   = .{ .widget_theme = zest.mocha_widget };
+    state.sidebar       = SidebarFocus.init();
+    state.main          = MainFocus.init();
+    state.active_domain = .sidebar;
+    state.color_scheme  = .dark;
+    state.files_list    = .{ .widget_theme = zest.mocha_widget };
 
-    try app.run(&state, &state.active_focus, update, draw);
+    try app.run(&state, activeFocus, update, draw);
 }

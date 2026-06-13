@@ -154,6 +154,31 @@ fn leafDomainFocusableIndices(comptime Blueprint: type) [leafCount(Blueprint)]us
     return result;
 }
 
+/// Counts domain() nodes in the blueprint tree.
+fn domainCount(comptime Blueprint: type) usize {
+    if (Blueprint.node_kind == .pane) return 0;
+    var count: usize = if (Blueprint.node_kind == .domain) 1 else 0;
+    inline for (Blueprint.children) |Child| count += domainCount(Child);
+    return count;
+}
+
+/// Collects domain ids in depth-first order, one per domain() node.
+fn domainCollect(comptime Blueprint: type) [domainCount(Blueprint)][:0]const u8 {
+    if (Blueprint.node_kind == .pane) return .{};
+    var result: [domainCount(Blueprint)][:0]const u8 = undefined;
+    var offset: usize = 0;
+    if (Blueprint.node_kind == .domain) {
+        result[0] = Blueprint.id;
+        offset = 1;
+    }
+    inline for (Blueprint.children) |Child| {
+        const sub = comptime domainCollect(Child);
+        for (0..sub.len) |j| result[offset + j] = sub[j];
+        offset += sub.len;
+    }
+    return result;
+}
+
 /// Returns the number of focusable panes whose nearest enclosing domain id
 /// matches target_domain_id. Use this to size a per-domain FocusStack when
 /// the blueprint contains domain() nodes.
@@ -226,6 +251,24 @@ pub const Layout = struct {
         }
 
         return DomainFocusType(count, panel_names);
+    }
+
+    /// Returns an enum type listing every domain() id in the blueprint.
+    /// Use this to track the active domain as a value rather than a pointer:
+    ///
+    ///     const DomainId = Layout.domainIdType(layout);
+    ///     var active: DomainId = .sidebar;
+    ///     active = .main;                 // switch — no pointer, can't dangle
+    ///     if (active == .sidebar) { ... } // exhaustive switch prevents missed cases
+    ///
+    /// A switch on DomainId is exhaustive — adding a domain to the blueprint
+    /// produces a compile error at every non-exhaustive switch site.
+    pub fn domainIdType(comptime Blueprint: type) type {
+        const count = comptime domainCount(Blueprint);
+        const ids   = comptime domainCollect(Blueprint);
+        var vals: [count]usize = undefined;
+        for (0..count) |i| vals[i] = i;
+        return @Enum(usize, .exhaustive, &ids, &vals);
     }
 
     /// Solves Blueprint's layout within bounds and returns a named struct of

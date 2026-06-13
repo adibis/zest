@@ -128,9 +128,9 @@ const focus_stack_capacity = 8;
 /// push() installs a new Focus (e.g. for a modal dialog); pop() restores the previous one.
 /// top() returns a mutable pointer to the active Focus.
 ///
-/// For multi-window apps, keep one FocusStack per window and store a *FocusStack
-/// pointer in your state. Point it at the active window's stack; App.run() receives
-/// **FocusStack and always operates on whatever it currently points to.
+/// For multi-domain apps, keep one FocusStack per domain. Use Layout.domainIdType()
+/// to generate a typed enum tracking which domain is active, then supply an
+/// activeFocus callback to App.run() that returns the right stack from the enum.
 pub const FocusStack = struct {
     levels: [focus_stack_capacity]Focus,
     depth: usize,
