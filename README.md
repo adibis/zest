@@ -129,10 +129,10 @@ Screen structure — which panels go where, which share a Tab focus ring, which 
 `domain()` nodes mark focus boundaries inside the blueprint. Tab cycling is constrained to the focusable panes within a single domain; focus never crosses domain boundaries automatically. Each domain gets its own `FocusStack`. Pressing a hotkey to jump between domains is explicit, deliberate, and stays within each column's own memory.
 
 ```zig
-const layout = zest.vsplit(.{
+const layout = zest.hsplit(.{
     .children = &.{
-        zest.domain(.{ .id = "nav",  .direction = .vertical, .size = .{ .fixed = 25 }, .children = &.{ ... } }),
-        zest.domain(.{ .id = "main", .direction = .vertical, .size = .{ .fraction = 1 }, .children = &.{ ... } }),
+        zest.domain(.{ .id = "sidebar", .direction = zest.Direction.vertical, .size = .{ .fixed = 25 }, .children = &.{ ... } }),
+        zest.domain(.{ .id = "main",    .direction = zest.Direction.vertical, .size = .{ .fraction = 1 }, .children = &.{ ... } }),
     },
 });
 ```
@@ -148,6 +148,10 @@ Widgets are structs with explicit state — scroll position, cursor, selection i
 ### Design Token Styling
 
 Colors and text styles are expressed as named tokens (`primary`, `danger`, `surface`, `muted`) rather than raw color codes. A theme maps tokens to concrete terminal colors at render time. `Theme(C)` and `Style(C)` are generic over any caller-supplied enum, so domain-specific palettes (e.g. diff annotations, severity levels) coexist with the built-in Catppuccin palette without global state.
+
+### Enforced Update/Draw Separation
+
+`update` mutates state; `draw` renders it. The framework passes a `vaxis.Window` only to `draw`, so rendering from inside `update` is a compile error, not a convention. This makes `update` testable without a terminal.
 
 ### Single-Threaded First
 
@@ -209,7 +213,7 @@ error: no field named 'sidebar' in struct 'PanelsType(hsplit(.{ .children = &.{ 
 Wrap groups of panes in `domain()` nodes to create independent Tab rings. Each domain gets its own `FocusStack`; only the active domain's pane shows as focused:
 
 ```zig
-const layout = zest.vsplit(.{
+const layout = zest.hsplit(.{
     .children = &.{
         zest.domain(.{
             .id        = "sidebar",
@@ -233,31 +237,67 @@ const layout = zest.vsplit(.{
 });
 ```
 
-Call `domainFocusType` once per domain to get a typed focus struct whose `.set()` and `.is()` methods accept pane names as enum literals — no strings or integers at call sites. Pass each domain's `FocusStack` (or `null` for the inactive domain) to `panels()`:
+`focusStateType` generates the complete focus state for all domains in one call — one typed field per `domain()` node, plus `active_domain`. No per-domain declarations, no parallel counters:
 
 ```zig
-const SidebarFocus = zest.Layout.domainFocusType(layout, "sidebar");
-const MainFocus    = zest.Layout.domainFocusType(layout, "main");
+const FocusState = zest.Layout.focusStateType(layout);
 
 const State = struct {
-    sidebar:      SidebarFocus,
-    main:         MainFocus,
-    active_focus: *zest.FocusStack,
+    focus: FocusState,
+    // ... application data
 };
 
-// In main():
-state.sidebar      = SidebarFocus.init();
-state.main         = MainFocus.init();
-state.active_focus = &state.sidebar.stack;
+fn activeFocus(state: *State) *zest.FocusStack {
+    return zest.Layout.focusStateActiveFocus(layout, &state.focus);
+}
 
-// In draw():
-const sidebar_focus: ?*zest.FocusStack =
-    if (state.active_focus == &state.sidebar.stack) &state.sidebar.stack else null;
-const main_focus: ?*zest.FocusStack =
-    if (state.active_focus == &state.main.stack) &state.main.stack else null;
+// In main():
+state.focus = zest.Layout.focusStateInit(layout);
+
+// In draw() — pass each domain's stack or null for the inactive domain:
 const p = zest.Layout.panels(layout, win,
     .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
-    .{ .sidebar = sidebar_focus, .main = main_focus });
+    .{ .sidebar = if (state.focus.active_domain == .sidebar) &state.focus.sidebar.stack else null,
+       .main    = if (state.focus.active_domain == .main)    &state.focus.main.stack    else null });
+```
+
+Domain switching and panel navigation use enum literals — no strings, no integers, no index arithmetic:
+
+```zig
+state.focus.active_domain = .main;         // switch active domain
+state.focus.sidebar.set(.commits);         // jump to named panel
+if (state.focus.sidebar.is(.files)) { ... } // check named panel focus
+```
+
+### Event Loop
+
+`update` mutates state and signals whether a redraw is needed. It never renders — no window is passed, so rendering from `update` is impossible by construction. `draw` receives the root window and renders the current state; the framework calls it only when `update` returns `.redraw`.
+
+```zig
+fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.UpdateResult {
+    switch (event) {
+        .key_press => |key| {
+            if (key.matches('q', .{})) return .quit;
+            if (key.matches('w', .{ .ctrl = true })) {
+                state.focus.active_domain =
+                    if (state.focus.active_domain == .sidebar) .main else .sidebar;
+            }
+            return .redraw;
+        },
+        .winsize, .focus_changed => return .redraw,
+        else => return .idle,
+    }
+}
+
+fn draw(state: *State, win: vaxis.Window) void {
+    win.clear();
+    const p = zest.Layout.panels(layout, win, ...);
+    // render p.files.win, p.diff.win, etc.
+}
+
+// Wire everything together — Tab cycling, state mutation, and rendering
+// are separate callbacks; the framework composes them:
+try app.run(&state, activeFocus, update, draw);
 ```
 
 See [`src/main.zig`](src/main.zig) for the complete demo.
