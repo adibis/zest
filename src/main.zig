@@ -46,7 +46,7 @@ const layout = zest.hsplit(.{
     },
 });
 
-const FocusState = zest.Layout.focusStateType(layout);
+const FocusState = zest.Layout.FocusStateType(layout);
 
 const files_items = [_][]const u8{
     "src/main.zig",

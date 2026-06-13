@@ -237,10 +237,10 @@ const layout = zest.vsplit(.{
 });
 ```
 
-`focusStateType` generates the complete focus state for all domains in one call — one typed field per `domain()` node, plus `active_domain`. No per-domain declarations, no parallel counters:
+`FocusStateType` generates the complete focus state for all domains in one call — one typed field per `domain()` node, plus `active_domain`. No per-domain declarations, no parallel counters:
 
 ```zig
-const FocusState = zest.Layout.focusStateType(layout);
+const FocusState = zest.Layout.FocusStateType(layout);
 
 const State = struct {
     focus: FocusState,

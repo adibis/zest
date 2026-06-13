@@ -18,10 +18,9 @@ const Rect = @import("../layout/rect.zig").Rect;
 const solveInto = @import("../layout/solver.zig").solveInto;
 const leafCount = @import("../layout/solver.zig").leafCount;
 const focusableLeafCount = @import("../layout/solver.zig").focusableLeafCount;
-const focus_mod       = @import("../core/focus.zig");
-const Focus           = focus_mod.Focus;
-const FocusStack      = focus_mod.FocusStack;
-const DomainFocusType = focus_mod.DomainFocusType;
+const focus_mod  = @import("../core/focus.zig");
+const Focus      = focus_mod.Focus;
+const FocusStack = focus_mod.FocusStack;
 
 /// A resolved layout region with its associated render state for a single frame.
 /// Each named field in the struct returned by Layout.panels() is a Panel.
@@ -215,7 +214,7 @@ pub const Layout = struct {
     /// Returns a comptime array of ALL leaf pane IDs in depth-first order,
     /// including non-focusable panes. Not safe to pass to Focus.is() — that
     /// function requires a focusable-only list whose positions match Focus.index.
-    /// Use domainFocusType for type-safe focus navigation.
+    /// Use DomainFocusType for type-safe focus navigation.
     pub fn panelIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
         return leafIds(Blueprint);
     }
@@ -224,46 +223,46 @@ pub const Layout = struct {
     /// each focusable panel mapped to a typed enum value. Eliminates integer
     /// and string literals from navigation code:
     ///
-    ///     const SF = Layout.domainFocusType(layout, "sidebar");
+    ///     const SF = Layout.DomainFocusType(layout, "sidebar");
     ///     var sf = SF.init();
     ///     sf.set(.files);       // jump to files — no integer, no string
     ///     sf.is(.branches)      // check focus  — no integer, no string
     ///     &sf.stack             // raw FocusStack for Layout.panels()
-    pub fn domainFocusType(
+    pub fn DomainFocusType(
         comptime Blueprint: type,
         comptime domain_id: [:0]const u8,
     ) type {
         @setEvalBranchQuota(100_000);
-        const N           = comptime leafCount(Blueprint);
-        const ids_        = comptime leafIds(Blueprint);
-        const domains_    = comptime leafDomains(Blueprint);
-        const focusables_ = comptime leafFocusable(Blueprint);
-        const count       = comptime focusableCountInDomain(Blueprint, domain_id);
+        const N          = comptime leafCount(Blueprint);
+        const ids        = comptime leafIds(Blueprint);
+        const domains    = comptime leafDomains(Blueprint);
+        const focusables = comptime leafFocusable(Blueprint);
+        const count      = comptime focusableCountInDomain(Blueprint, domain_id);
 
         // Collect focusable panel names in this domain, in focus-index order.
         var panel_names: [count][:0]const u8 = undefined;
         var k: usize = 0;
         inline for (0..N) |i| {
-            if (comptime (focusables_[i] and std.mem.eql(u8, domains_[i], domain_id))) {
-                panel_names[k] = ids_[i];
+            if (comptime (focusables[i] and std.mem.eql(u8, domains[i], domain_id))) {
+                panel_names[k] = ids[i];
                 k += 1;
             }
         }
 
-        return DomainFocusType(count, panel_names);
+        return focus_mod.DomainFocusType(count, panel_names);
     }
 
     /// Returns an enum type listing every domain() id in the blueprint.
     /// Use this to track the active domain as a value rather than a pointer:
     ///
-    ///     const DomainId = Layout.domainIdType(layout);
+    ///     const DomainId = Layout.DomainIdType(layout);
     ///     var active: DomainId = .sidebar;
     ///     active = .main;                 // switch — no pointer, can't dangle
     ///     if (active == .sidebar) { ... } // exhaustive switch prevents missed cases
     ///
     /// A switch on DomainId is exhaustive — adding a domain to the blueprint
     /// produces a compile error at every non-exhaustive switch site.
-    pub fn domainIdType(comptime Blueprint: type) type {
+    pub fn DomainIdType(comptime Blueprint: type) type {
         const count = comptime domainCount(Blueprint);
         const ids   = comptime domainCollect(Blueprint);
         var vals: [count]usize = undefined;
@@ -276,21 +275,21 @@ pub const Layout = struct {
     /// All fields are derived from the blueprint — adding a domain to the
     /// blueprint adds it to this struct automatically.
     ///
-    ///     const FocusState = Layout.focusStateType(layout);
+    ///     const FocusState = Layout.FocusStateType(layout);
     ///     state.focus = Layout.focusStateInit(layout);
     ///     state.focus.sidebar.is(.files)  // per-domain focus check
     ///     state.focus.active_domain = .main  // switch active domain
-    pub fn focusStateType(comptime Blueprint: type) type {
+    pub fn FocusStateType(comptime Blueprint: type) type {
         @setEvalBranchQuota(100_000);
         const count = comptime domainCount(Blueprint);
         const ids   = comptime domainCollect(Blueprint);
-        const DomId = comptime domainIdType(Blueprint);
+        const DomId = comptime DomainIdType(Blueprint);
         var names: [count + 1][]const u8 = undefined;
         var types:  [count + 1]type = undefined;
         var attrs:  [count + 1]std.builtin.Type.StructField.Attributes = undefined;
         inline for (ids, 0..) |id, i| {
             names[i] = id;
-            types[i] = domainFocusType(Blueprint, id);
+            types[i] = DomainFocusType(Blueprint, id);
             attrs[i] = .{};
         }
         names[count] = "active_domain";
@@ -299,12 +298,12 @@ pub const Layout = struct {
         return @Struct(.auto, null, &names, &types, &attrs);
     }
 
-    /// Returns a default-initialized focusStateType(Blueprint).
+    /// Returns a default-initialized FocusStateType(Blueprint).
     /// Each domain stack is ready to use. The first domain in blueprint
     /// depth-first order starts as the active domain.
-    pub fn focusStateInit(comptime Blueprint: type) focusStateType(Blueprint) {
+    pub fn focusStateInit(comptime Blueprint: type) FocusStateType(Blueprint) {
         const ids = comptime domainCollect(Blueprint);
-        var fs: focusStateType(Blueprint) = undefined;
+        var fs: FocusStateType(Blueprint) = undefined;
         inline for (ids) |id| {
             @field(fs, id) = @TypeOf(@field(fs, id)).init();
         }
@@ -320,10 +319,10 @@ pub const Layout = struct {
     ///     }
     pub fn focusStateActiveFocus(
         comptime Blueprint: type,
-        fs: *focusStateType(Blueprint),
+        fs: *FocusStateType(Blueprint),
     ) *FocusStack {
         const ids   = comptime domainCollect(Blueprint);
-        const DomId = comptime domainIdType(Blueprint);
+        const DomId = comptime DomainIdType(Blueprint);
         inline for (ids, 0..) |id, i| {
             if (fs.active_domain == @as(DomId, @enumFromInt(i)))
                 return &@field(fs, id).stack;
@@ -879,7 +878,7 @@ test "leafDomains: mixed — some panes in domain, some outside" {
     try std.testing.expectEqualStrings("",        domains[1]);
 }
 
-test "Layout.domainFocusType: set and is use typed panel enum, no integers" {
+test "Layout.DomainFocusType: set and is use typed panel enum, no integers" {
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
@@ -905,14 +904,14 @@ test "Layout.domainFocusType: set and is use typed panel enum, no integers" {
             }),
         },
     });
-    const SidebarFocus = Layout.domainFocusType(B, "sidebar");
+    const SidebarFocus = Layout.DomainFocusType(B, "sidebar");
     var sf = SidebarFocus.init();
     try std.testing.expect(sf.is(.files));       // starts at 0 = files
     sf.set(.branches);
     try std.testing.expect(sf.is(.branches));
     try std.testing.expect(!sf.is(.files));
 
-    const MainFocus = Layout.domainFocusType(B, "main");
+    const MainFocus = Layout.DomainFocusType(B, "main");
     var mf = MainFocus.init();
     try std.testing.expect(mf.is(.showcase));
     // Advancing sidebar does not affect main domain.
@@ -920,7 +919,7 @@ test "Layout.domainFocusType: set and is use typed panel enum, no integers" {
     try std.testing.expect(mf.is(.showcase));
 }
 
-test "Layout.focusStateType: generates struct with one field per domain" {
+test "Layout.FocusStateType: generates struct with one field per domain" {
     const p  = @import("../layout/blueprint.zig").pane;
     const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
@@ -946,7 +945,7 @@ test "Layout.focusStateType: generates struct with one field per domain" {
             }),
         },
     });
-    const FS = Layout.focusStateType(B);
+    const FS = Layout.FocusStateType(B);
     try std.testing.expect(@hasField(FS, "sidebar"));
     try std.testing.expect(@hasField(FS, "main"));
     try std.testing.expect(@hasField(FS, "active_domain"));
@@ -980,7 +979,7 @@ test "Layout.focusStateInit: all domains initialised, first domain active" {
     });
     var fs = Layout.focusStateInit(B);
     // First domain (sidebar) is active by default.
-    try std.testing.expectEqual(@as(Layout.domainIdType(B), .sidebar), fs.active_domain);
+    try std.testing.expectEqual(@as(Layout.DomainIdType(B), .sidebar), fs.active_domain);
     // Domain stacks start at panel index 0.
     try std.testing.expect(fs.sidebar.is(.files));
     try std.testing.expect(fs.main.is(.showcase));
