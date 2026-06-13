@@ -82,6 +82,8 @@ fn leafIds(comptime Blueprint: type) [leafCount(Blueprint)][:0]const u8 {
 /// leaf pane, in depth-first left-to-right order. Each entry is the id of the
 /// nearest enclosing domain() node, or "" if the pane is not inside any domain.
 fn leafDomainsInner(comptime Blueprint: type, comptime current: [:0]const u8) [leafCount(Blueprint)][:0]const u8 {
+    if (!@hasDecl(Blueprint, "node_kind"))
+        @compileError("Blueprint must be produced by pane(), vsplit(), hsplit(), or domain()");
     if (Blueprint.node_kind == .pane) return .{current};
     const next: [:0]const u8 = if (Blueprint.node_kind == .domain) Blueprint.id else current;
     var result: [leafCount(Blueprint)][:0]const u8 = undefined;
@@ -155,6 +157,8 @@ fn leafDomainFocusableIndices(comptime Blueprint: type) [leafCount(Blueprint)]us
 
 /// Counts domain() nodes in the blueprint tree.
 fn domainCount(comptime Blueprint: type) usize {
+    if (!@hasDecl(Blueprint, "node_kind"))
+        @compileError("Blueprint must be produced by pane(), vsplit(), hsplit(), or domain()");
     if (Blueprint.node_kind == .pane) return 0;
     var count: usize = if (Blueprint.node_kind == .domain) 1 else 0;
     inline for (Blueprint.children) |Child| count += domainCount(Child);
@@ -163,6 +167,8 @@ fn domainCount(comptime Blueprint: type) usize {
 
 /// Collects domain ids in depth-first order, one per domain() node.
 fn domainCollect(comptime Blueprint: type) [domainCount(Blueprint)][:0]const u8 {
+    if (!@hasDecl(Blueprint, "node_kind"))
+        @compileError("Blueprint must be produced by pane(), vsplit(), hsplit(), or domain()");
     if (Blueprint.node_kind == .pane) return .{};
     var result: [domainCount(Blueprint)][:0]const u8 = undefined;
     var offset: usize = 0;
