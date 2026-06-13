@@ -73,14 +73,25 @@ pub fn pane(comptime opts: struct {
 // Converts an anonymous size literal (.{ .fixed = N } etc.) to Size.
 // hsplit/vsplit take `anytype` for opts because the children field has a
 // variable-length type — so unlike pane(), no automatic coercion happens.
+//
+// Exactly one of fixed/fraction/percent must be present. A previous form
+// fell through to the first matching field, so a typo like
+// .{ .fixed = 10, .fraction = 5 } would silently honor only .fixed; the
+// explicit count rejects that at compile time.
 fn optsToSize(comptime s: anytype) Size {
-    if (@hasField(@TypeOf(s), "fixed"))    return .{ .fixed    = s.fixed };
-    if (@hasField(@TypeOf(s), "fraction")) return .{ .fraction = s.fraction };
-    if (@hasField(@TypeOf(s), "percent")) {
-        if (s.percent > 100) @compileError("percent size must be 0–100");
-        return .{ .percent = s.percent };
-    }
-    @compileError("size must be .{ .fixed = N }, .{ .fraction = N }, or .{ .percent = N }");
+    const T = @TypeOf(s);
+    const has_fixed    = @hasField(T, "fixed");
+    const has_fraction = @hasField(T, "fraction");
+    const has_percent  = @hasField(T, "percent");
+    const present: u2 = @as(u2, @intFromBool(has_fixed))
+                     + @as(u2, @intFromBool(has_fraction))
+                     + @as(u2, @intFromBool(has_percent));
+    if (present != 1)
+        @compileError("size must specify exactly one of .fixed, .fraction, or .percent");
+    if (has_fixed)    return .{ .fixed    = s.fixed };
+    if (has_fraction) return .{ .fraction = s.fraction };
+    if (s.percent > 100) @compileError("percent size must be 0–100");
+    return .{ .percent = s.percent };
 }
 
 fn splitImpl(comptime dir: Direction, comptime opts: anytype) type {
