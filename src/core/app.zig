@@ -75,6 +75,14 @@ pub const App = struct {
     ///
     /// `draw` receives the root vaxis.Window and renders the current state.
     /// The loop calls `draw` only when `update` returns `.redraw`.
+    ///
+    /// Call at most once per process. Internally this installs a SIGWINCH
+    /// handler whose context is the address of a stack-local vaxis.Loop, and
+    /// vaxis exposes no uninstall API. The address goes stale the moment run()
+    /// returns, so a second call would corrupt the next resize callback, and
+    /// any work the caller does after run() returns is racing against the same
+    /// dangling handler. Today the demo calls run() as the last thing in main,
+    /// which is what keeps the window of exposure empty.
     pub fn run(
         self: *App,
         ctx: anytype,
