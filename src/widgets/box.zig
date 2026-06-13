@@ -6,7 +6,7 @@
 //! compile time. All geometry is stack-allocated; no arena or allocator needed.
 //!
 //! The pipeline in one line:
-//!   hsplit/vsplit  →  pure geometry, no output
+//!   vsplit/hsplit  →  pure geometry, no output
 //!   pane           →  becomes Panel{ win, focused } via Layout.panels()
 //!
 //! If a pane declares `border = true`, vaxis draws the border and returns the
@@ -45,7 +45,7 @@ fn leafCollect(
     comptime Ex: type,
 ) [leafCount(Blueprint)]T {
     if (!@hasDecl(Blueprint, "node_kind"))
-        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
+        @compileError("Blueprint must be produced by pane(), vsplit(), hsplit(), or domain()");
     if (Blueprint.node_kind == .pane) return .{Ex.extract(Blueprint)};
     var result: [leafCount(Blueprint)]T = undefined;
     var offset: usize = 0;
@@ -397,8 +397,8 @@ pub const Layout = struct {
 
 test "Layout.panels: returns one panel per leaf pane, no borders" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
-    const vs = @import("../layout/blueprint.zig").vsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
+    const vs = @import("../layout/blueprint.zig").hsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .id = "a", .size = .{ .fixed = 20 } }),
@@ -433,7 +433,7 @@ test "Layout.panels: returns one panel per leaf pane, no borders" {
 
 test "Layout.panels: bordered pane is inset by one cell per edge" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .id = "left",  .size = .{ .fixed = 20 }, .border = true }),
@@ -462,7 +462,7 @@ test "Layout.panels: bordered pane is inset by one cell per edge" {
 
 test "PanelsType: flat blueprint produces struct with correct field names" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .id = "sidebar", .size = .{ .fixed = 20 } }),
@@ -477,8 +477,8 @@ test "PanelsType: flat blueprint produces struct with correct field names" {
 
 test "PanelsType: nested blueprint produces one field per leaf pane" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
-    const vs = @import("../layout/blueprint.zig").vsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
+    const vs = @import("../layout/blueprint.zig").hsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .id = "sidebar", .size = .{ .fixed = 20 } }),
@@ -500,7 +500,7 @@ test "PanelsType: nested blueprint produces one field per leaf pane" {
 
 test "Layout.focusablePanelCount: excludes non-focusable panes" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const vs = @import("../layout/blueprint.zig").vsplit;
+    const vs = @import("../layout/blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .id = "header", .size = .{ .fixed = 1 }, .focusable = false }),
@@ -514,7 +514,7 @@ test "Layout.focusablePanelCount: excludes non-focusable panes" {
 
 test "Layout.panels: non-focusable pane always has focused = false" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const vs = @import("../layout/blueprint.zig").vsplit;
+    const vs = @import("../layout/blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .id = "chrome",  .size = .{ .fixed = 1 }, .focusable = false }),
@@ -542,7 +542,7 @@ test "Layout.panels: non-focusable pane always has focused = false" {
 
 test "Layout.panels: focus index maps to focusable panes only, skipping non-focusable" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const vs = @import("../layout/blueprint.zig").vsplit;
+    const vs = @import("../layout/blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .id = "a",      .size = .{ .fraction = 1 } }),
@@ -579,7 +579,7 @@ test "Layout.panels: focus index maps to focusable panes only, skipping non-focu
 
 test "Layout.panels: domain focus index stamps correct pane in each domain" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const FocusStack_ = @import("../core/focus.zig").FocusStack;
@@ -641,7 +641,7 @@ test "Layout.panels: domain focus index stamps correct pane in each domain" {
 
 test "Layout.panels: domain focus never bleeds across domain boundaries" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const FocusStack_ = @import("../core/focus.zig").FocusStack;
@@ -697,7 +697,7 @@ test "Layout.panels: domain focus never bleeds across domain boundaries" {
 
 test "Layout.panels: backward compat — blueprint without domains accepts ctx.focus" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const vs = @import("../layout/blueprint.zig").vsplit;
+    const vs = @import("../layout/blueprint.zig").hsplit;
     const FocusStack_ = @import("../core/focus.zig").FocusStack;
     const Focus_ = @import("../core/focus.zig").Focus;
 
@@ -732,7 +732,7 @@ test "Layout.panels: backward compat — blueprint without domains accepts ctx.f
 
 test "Layout.focusablePanelCountInDomain: counts only focusable panes in the named domain" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{
@@ -780,7 +780,7 @@ test "Layout.focusablePanelCountInDomain: non-focusable panes inside domain are 
 
 test "leafDomains: pane outside any domain gets empty string" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const vs = @import("../layout/blueprint.zig").vsplit;
+    const vs = @import("../layout/blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .id = "a", .size = .{ .fraction = 1 } }),
@@ -811,7 +811,7 @@ test "leafDomains: pane directly inside domain gets that domain's id" {
 
 test "leafDomains: split inside domain propagates domain id to its children" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const vs = @import("../layout/blueprint.zig").vsplit;
+    const vs = @import("../layout/blueprint.zig").hsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const B = d(.{
@@ -858,7 +858,7 @@ test "leafDomains: nested domains — inner id wins over outer" {
 
 test "leafDomains: mixed — some panes in domain, some outside" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{
@@ -881,7 +881,7 @@ test "leafDomains: mixed — some panes in domain, some outside" {
 
 test "Layout.domainFocusType: set and is use typed panel enum, no integers" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{
@@ -922,7 +922,7 @@ test "Layout.domainFocusType: set and is use typed panel enum, no integers" {
 
 test "Layout.focusStateType: generates struct with one field per domain" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{
@@ -954,7 +954,7 @@ test "Layout.focusStateType: generates struct with one field per domain" {
 
 test "Layout.focusStateInit: all domains initialised, first domain active" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{
@@ -988,7 +988,7 @@ test "Layout.focusStateInit: all domains initialised, first domain active" {
 
 test "Layout.focusStateActiveFocus: returns stack for active domain" {
     const p  = @import("../layout/blueprint.zig").pane;
-    const hs = @import("../layout/blueprint.zig").hsplit;
+    const hs = @import("../layout/blueprint.zig").vsplit;
     const d  = @import("../layout/blueprint.zig").domain;
     const Direction = @import("../layout/blueprint.zig").Direction;
     const B = hs(.{

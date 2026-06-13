@@ -14,10 +14,10 @@ const zest = @import("zest");
 
 // --- Layout ------------------------------------------------------------------
 
-const layout = zest.vsplit(.{
+const layout = zest.hsplit(.{
     .children = &.{
         zest.pane(.{ .id = "header", .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
-        zest.hsplit(.{
+        zest.vsplit(.{
             .size     = .{ .fraction = 1 },
             .children = &.{
                 zest.domain(.{

@@ -77,14 +77,14 @@ The same layout in Zest is the single blueprint in the [Quick Start](#focus-doma
 
 This advantage compounds when you make changes. Say you want to split the command log into a raw log on the left and a detail view on the right.
 
-In Zest, wrap the existing `pane` in an `hsplit` and add one child:
+In Zest, wrap the existing `pane` in a `vsplit` and add one child:
 
 ```zig
 // Before — one line:
 zest.pane(.{ .id = "cmdlog", .size = .{ .fixed = 5 }, .border = true, .focusable = false }),
 
 // After — still one logical declaration:
-zest.hsplit(.{
+zest.vsplit(.{
     .size     = .{ .fixed = 5 },
     .children = &.{
         zest.pane(.{ .id = "cmdlog", .size = .{ .fraction = 1 }, .border = true, .focusable = false }),
@@ -129,7 +129,7 @@ Screen structure — which panels go where, which share a Tab focus ring, which 
 `domain()` nodes mark focus boundaries inside the blueprint. Tab cycling is constrained to the focusable panes within a single domain; focus never crosses domain boundaries automatically. Each domain gets its own `FocusStack`. Pressing a hotkey to jump between domains is explicit, deliberate, and stays within each column's own memory.
 
 ```zig
-const layout = zest.hsplit(.{
+const layout = zest.vsplit(.{
     .children = &.{
         zest.domain(.{ .id = "sidebar", .direction = zest.Direction.vertical, .size = .{ .fixed = 25 }, .children = &.{ ... } }),
         zest.domain(.{ .id = "main",    .direction = zest.Direction.vertical, .size = .{ .fraction = 1 }, .children = &.{ ... } }),
@@ -173,13 +173,13 @@ All memory allocated during a render pass lives in a frame-scoped arena that is 
 
 ### Layout
 
-Declare your screen structure once as a comptime blueprint. `hsplit` and `vsplit` are branch nodes that divide space; `pane` is a leaf that becomes a rendered panel:
+Declare your screen structure once as a comptime blueprint. `vsplit` adds a vertical line (children sit left-to-right); `hsplit` adds a horizontal line (children stack top-to-bottom) — matching tmux/vim convention. `pane` is a leaf that becomes a rendered panel:
 
 ```zig
-const layout = zest.hsplit(.{
+const layout = zest.vsplit(.{
     .children = &.{
         zest.pane(.{ .id = "sidebar", .size = .{ .fixed = 30 }, .border = true }),
-        zest.vsplit(.{
+        zest.hsplit(.{
             .size     = .{ .fraction = 1 },
             .children = &.{
                 zest.pane(.{ .id = "header", .size = .{ .fixed = 3 },    .border = true }),
@@ -203,7 +203,7 @@ _ = p.body.win.print(&.{.{ .text = "Body"    }}, .{});
 Renaming a pane — `"sidebar"` to `"nav"` — is a compile error, not a silent index mismatch:
 
 ```
-error: no field named 'sidebar' in struct 'PanelsType(hsplit(.{ .children = &.{ ... } }))'
+error: no field named 'sidebar' in struct 'PanelsType(vsplit(.{ .children = &.{ ... } }))'
     _ = p.sidebar.win.print(...)
           ^~~~~~~
 ```
@@ -213,7 +213,7 @@ error: no field named 'sidebar' in struct 'PanelsType(hsplit(.{ .children = &.{ 
 Wrap groups of panes in `domain()` nodes to create independent Tab rings. Each domain gets its own `FocusStack`; only the active domain's pane shows as focused:
 
 ```zig
-const layout = zest.hsplit(.{
+const layout = zest.vsplit(.{
     .children = &.{
         zest.domain(.{
             .id        = "sidebar",

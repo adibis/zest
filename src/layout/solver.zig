@@ -1,7 +1,7 @@
 //! Layout solver — turns a comptime blueprint into a flat slice of Rects.
 //!
 //! The solver bridges the comptime blueprint tree (built with pane(),
-//! hsplit(), and vsplit()) and the runtime Rects that widgets use to claim
+//! vsplit(), and hsplit()) and the runtime Rects that widgets use to claim
 //! screen space. It runs once per resize event, allocating from the frame
 //! arena so the result is bulk-freed at the start of the next frame with
 //! zero per-Rect overhead.
@@ -14,7 +14,7 @@ const Rect = @import("rect.zig").Rect;
 /// a FocusStack so Tab cycling never lands on display-only panes.
 pub fn focusableLeafCount(comptime Blueprint: type) usize {
     if (!@hasDecl(Blueprint, "node_kind"))
-        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
+        @compileError("Blueprint must be produced by pane(), vsplit(), hsplit(), or domain()");
     return switch (Blueprint.node_kind) {
         .pane => if (Blueprint.focusable) 1 else 0,
         .split, .domain => blk: {
@@ -29,7 +29,7 @@ pub fn focusableLeafCount(comptime Blueprint: type) usize {
 /// The result is used to allocate exactly the right slice before recursing.
 pub fn leafCount(comptime Blueprint: type) usize {
     if (!@hasDecl(Blueprint, "node_kind"))
-        @compileError("Blueprint must be produced by pane(), hsplit(), vsplit(), or domain()");
+        @compileError("Blueprint must be produced by pane(), vsplit(), hsplit(), or domain()");
     return switch (Blueprint.node_kind) {
         .pane => 1,
         .split, .domain => blk: {
@@ -46,7 +46,7 @@ pub fn leafCount(comptime Blueprint: type) usize {
 /// depth-first left-to-right order. The caller owns the returned slice;
 /// pass the frame arena so it is freed each frame without individual frees.
 ///
-/// `Blueprint` must be a type produced by pane(), hsplit(), or vsplit().
+/// `Blueprint` must be a type produced by pane(), vsplit(), or hsplit().
 /// Any other type is a compile-time error.
 pub fn solve(
     allocator: std.mem.Allocator,
@@ -54,7 +54,7 @@ pub fn solve(
     bounds: Rect,
 ) ![]Rect {
     if (!@hasDecl(Blueprint, "node_kind"))
-        @compileError("solve: Blueprint must be a type returned by pane(), hsplit(), vsplit(), or domain()");
+        @compileError("solve: Blueprint must be a type returned by pane(), vsplit(), hsplit(), or domain()");
     const rects = try allocator.alloc(Rect, leafCount(Blueprint));
     solveInto(Blueprint, bounds, rects);
     return rects;
@@ -195,9 +195,9 @@ test "solve: single pane returns bounds unchanged" {
     try std.testing.expectEqual(bounds, rects[0]);
 }
 
-test "solve: hsplit with one fixed pane — placed at left edge" {
+test "solve: vsplit with one fixed pane — placed at left edge" {
     const p = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{p(.{ .size = .{ .fixed = 30 } })},
     });
@@ -214,9 +214,9 @@ test "solve: hsplit with one fixed pane — placed at left edge" {
     try std.testing.expectEqual(24, rects[0].height);
 }
 
-test "solve: hsplit with two fixed panes — correct offsets, no overlap" {
+test "solve: vsplit with two fixed panes — correct offsets, no overlap" {
     const p = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .fixed = 20 } }),
@@ -237,9 +237,9 @@ test "solve: hsplit with two fixed panes — correct offsets, no overlap" {
     try std.testing.expectEqual(30, rects[1].width);
 }
 
-test "solve: hsplit fixed + fraction — fraction gets remaining width" {
+test "solve: vsplit fixed + fraction — fraction gets remaining width" {
     const p = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .fixed = 30 } }),
@@ -259,9 +259,9 @@ test "solve: hsplit fixed + fraction — fraction gets remaining width" {
     try std.testing.expectEqual(50, rects[1].width);
 }
 
-test "solve: hsplit fixed + fraction — fraction gets remaining width (variant)" {
+test "solve: vsplit fixed + fraction — fraction gets remaining width (variant)" {
     const p = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .fixed = 20 } }),
@@ -279,9 +279,9 @@ test "solve: hsplit fixed + fraction — fraction gets remaining width (variant)
     try std.testing.expectEqual(60, rects[1].width);
 }
 
-test "solve: hsplit two equal fractions split remaining width evenly" {
+test "solve: vsplit two equal fractions split remaining width evenly" {
     const p = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .fraction = 1 } }),
@@ -300,9 +300,9 @@ test "solve: hsplit two equal fractions split remaining width evenly" {
     try std.testing.expectEqual(40, rects[1].width);
 }
 
-test "solve: hsplit weighted fractions split proportionally" {
+test "solve: vsplit weighted fractions split proportionally" {
     const p = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .fraction = 1 } }),
@@ -320,9 +320,9 @@ test "solve: hsplit weighted fractions split proportionally" {
     try std.testing.expectEqual(60, rects[1].width);
 }
 
-test "solve: vsplit with two fixed panes — correct y offsets, no overlap" {
+test "solve: hsplit with two fixed panes — correct y offsets, no overlap" {
     const p = @import("blueprint.zig").pane;
-    const vs = @import("blueprint.zig").vsplit;
+    const vs = @import("blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .size = .{ .fixed = 10 } }),
@@ -342,9 +342,9 @@ test "solve: vsplit with two fixed panes — correct y offsets, no overlap" {
     try std.testing.expectEqual(80, rects[0].width);
 }
 
-test "solve: vsplit fixed + fraction gets remaining height" {
+test "solve: hsplit fixed + fraction gets remaining height" {
     const p = @import("blueprint.zig").pane;
-    const vs = @import("blueprint.zig").vsplit;
+    const vs = @import("blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .size = .{ .fixed = 3 } }),
@@ -363,9 +363,9 @@ test "solve: vsplit fixed + fraction gets remaining height" {
     try std.testing.expectEqual(80, rects[1].width);
 }
 
-test "solve: vsplit two equal fractions split height evenly" {
+test "solve: hsplit two equal fractions split height evenly" {
     const p = @import("blueprint.zig").pane;
-    const vs = @import("blueprint.zig").vsplit;
+    const vs = @import("blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .size = .{ .fraction = 1 } }),
@@ -384,9 +384,9 @@ test "solve: vsplit two equal fractions split height evenly" {
     try std.testing.expectEqual(20, rects[1].height);
 }
 
-test "solve: vsplit four equal fractions over indivisible height fills all space" {
+test "solve: hsplit four equal fractions over indivisible height fills all space" {
     const p  = @import("blueprint.zig").pane;
-    const vs = @import("blueprint.zig").vsplit;
+    const vs = @import("blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .size = .{ .fraction = 1 } }),
@@ -415,7 +415,7 @@ test "solve: vsplit four equal fractions over indivisible height fills all space
 
 test "solve: percent pane consumes its share of parent dimension" {
     const p  = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .percent = 25 } }),
@@ -436,7 +436,7 @@ test "solve: percent pane consumes its share of parent dimension" {
 
 test "solve: percent pane resolved before fraction — fraction sees reduced space" {
     const p  = @import("blueprint.zig").pane;
-    const vs = @import("blueprint.zig").vsplit;
+    const vs = @import("blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .size = .{ .percent = 50 } }),
@@ -499,10 +499,10 @@ test "focusableLeafCount: domain node counts only focusable panes" {
     try std.testing.expectEqual(1, focusableLeafCount(B));
 }
 
-test "solve: domain node produces same geometry as equivalent vsplit" {
+test "solve: domain node produces same geometry as equivalent hsplit" {
     const p  = @import("blueprint.zig").pane;
     const d  = @import("blueprint.zig").domain;
-    const vs = @import("blueprint.zig").vsplit;
+    const vs = @import("blueprint.zig").hsplit;
     const Direction = @import("blueprint.zig").Direction;
 
     const WithDomain = d(.{
@@ -533,10 +533,10 @@ test "solve: domain node produces same geometry as equivalent vsplit" {
     try std.testing.expectEqual(sr[1], dr[1]);
 }
 
-test "solve: nested hsplit/vsplit — sidebar + header/body produces 3 leaf rects" {
+test "solve: nested vsplit/hsplit — sidebar + header/body produces 3 leaf rects" {
     const p  = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
-    const vs = @import("blueprint.zig").vsplit;
+    const hs = @import("blueprint.zig").vsplit;
+    const vs = @import("blueprint.zig").hsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .fixed = 20 } }),
@@ -574,7 +574,7 @@ test "solve: nested hsplit/vsplit — sidebar + header/body produces 3 leaf rect
 
 test "solve: zero-width bounds — all rects have zero width without panic" {
     const p  = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .fraction = 1 } }),
@@ -592,7 +592,7 @@ test "solve: zero-width bounds — all rects have zero width without panic" {
 
 test "solve: zero-height bounds — all rects have zero height without panic" {
     const p  = @import("blueprint.zig").pane;
-    const vs = @import("blueprint.zig").vsplit;
+    const vs = @import("blueprint.zig").hsplit;
     const B = vs(.{
         .children = &.{
             p(.{ .size = .{ .fraction = 1 } }),
@@ -610,7 +610,7 @@ test "solve: zero-height bounds — all rects have zero height without panic" {
 
 test "solve: percent + fraction with non-zero origin — child x/y are absolute" {
     const p  = @import("blueprint.zig").pane;
-    const hs = @import("blueprint.zig").hsplit;
+    const hs = @import("blueprint.zig").vsplit;
     const B = hs(.{
         .children = &.{
             p(.{ .size = .{ .percent = 25 } }),

@@ -4,16 +4,20 @@
 //! are branch nodes that divide screen space along an axis. pane() is a leaf
 //! node — the named endpoint that becomes a Panel at runtime.
 //!
+//! hsplit() adds a horizontal dividing line — children stack top-to-bottom.
+//! vsplit() adds a vertical dividing line — children sit left-to-right.
+//! This matches the tmux/vim convention.
+//!
 //! Branch nodes produce no rendered output. They dissolve into geometry during
 //! the solve pass. Only pane nodes survive into the result: each becomes a
 //! Panel{ win, focused } in the struct returned by Layout.panels().
 //!
 //! Example:
 //!
-//!   const layout = hsplit(.{
+//!   const layout = vsplit(.{
 //!       .children = &.{
 //!           pane(.{ .id = "sidebar", .size = .{ .fixed = 30 } }),
-//!           vsplit(.{
+//!           hsplit(.{
 //!               .size     = .{ .fraction = 1 },
 //!               .children = &.{
 //!                   pane(.{ .id = "header", .size = .{ .fixed = 3 } }),
@@ -88,24 +92,30 @@ fn splitImpl(comptime dir: Direction, comptime opts: anytype) type {
     };
 }
 
-/// Returns a comptime branch-node descriptor that divides space horizontally.
-/// Children are arranged left-to-right. Produces no Panel of its own — only
+/// Returns a comptime branch-node descriptor that adds a horizontal split line.
+/// Children are stacked top-to-bottom. Produces no Panel of its own — only
 /// pane nodes at the leaves of the tree become Panels.
+///
+/// Matches tmux/vim: "horizontal split" means a horizontal line divides the
+/// screen, producing windows above and below.
 ///
 /// opts is anytype rather than a concrete struct because the children field
 /// holds a *const [N]type whose length N varies per call site.
 pub fn hsplit(comptime opts: anytype) type {
-    return splitImpl(.horizontal, opts);
+    return splitImpl(.vertical, opts);
 }
 
-/// Returns a comptime branch-node descriptor that divides space vertically.
-/// Children are arranged top-to-bottom. Produces no Panel of its own — only
+/// Returns a comptime branch-node descriptor that adds a vertical split line.
+/// Children are arranged left-to-right. Produces no Panel of its own — only
 /// pane nodes at the leaves of the tree become Panels.
+///
+/// Matches tmux/vim: "vertical split" means a vertical line divides the
+/// screen, producing windows side by side.
 ///
 /// opts is anytype rather than a concrete struct because the children field
 /// holds a *const [N]type whose length N varies per call site.
 pub fn vsplit(comptime opts: anytype) type {
-    return splitImpl(.vertical, opts);
+    return splitImpl(.horizontal, opts);
 }
 
 /// Returns a comptime focus-domain descriptor.
@@ -187,18 +197,18 @@ test "hsplit: node_kind is .split" {
     try std.testing.expectEqual(NodeKind.split, B.node_kind);
 }
 
-test "hsplit: direction is horizontal" {
+test "hsplit: direction is vertical (children stack top-to-bottom)" {
     const B = hsplit(.{
         .children = &.{pane(.{ .size = .{ .fraction = 1 } })},
     });
-    try std.testing.expectEqual(Direction.horizontal, B.direction);
+    try std.testing.expectEqual(Direction.vertical, B.direction);
 }
 
-test "vsplit: direction is vertical" {
+test "vsplit: direction is horizontal (children sit left-to-right)" {
     const B = vsplit(.{
         .children = &.{pane(.{ .size = .{ .fraction = 1 } })},
     });
-    try std.testing.expectEqual(Direction.vertical, B.direction);
+    try std.testing.expectEqual(Direction.horizontal, B.direction);
 }
 
 test "hsplit: children length is accessible" {
