@@ -1,10 +1,10 @@
 //! Layout solver — turns a comptime blueprint into a flat slice of Rects.
 //!
 //! The solver bridges the comptime blueprint tree (built with pane(),
-//! vsplit(), and hsplit()) and the runtime Rects that widgets use to claim
-//! screen space. It runs once per resize event, allocating from the frame
-//! arena so the result is bulk-freed at the start of the next frame with
-//! zero per-Rect overhead.
+//! vsplit(), hsplit(), and domain()) and the runtime Rects that widgets use
+//! to claim screen space. It runs once per resize event, allocating from the
+//! frame arena so the result is bulk-freed at the start of the next frame
+//! with zero per-Rect overhead.
 
 const std = @import("std");
 const Rect = @import("rect.zig").Rect;
@@ -46,7 +46,7 @@ pub fn leafCount(comptime Blueprint: type) usize {
 /// depth-first left-to-right order. The caller owns the returned slice;
 /// pass the frame arena so it is freed each frame without individual frees.
 ///
-/// `Blueprint` must be a type produced by pane(), vsplit(), or hsplit().
+/// `Blueprint` must be a type produced by pane(), vsplit(), hsplit(), or domain().
 /// Any other type is a compile-time error.
 pub fn solve(
     allocator: std.mem.Allocator,
@@ -118,8 +118,8 @@ pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
         }
     }
     // Fraction pass: distribute whatever main-axis space remains after fixed
-    // children. cursor equals total fixed size because fractions did not
-    // advance it.
+    // and percent children. cursor holds the total consumed so far; fractions
+    // did not advance it.
     var fraction_weight_total: u32 = 0;
     inline for (Blueprint.children) |Child| {
         switch (Child.size) {

@@ -30,10 +30,10 @@ pub const Panel = struct {
     focused: bool,
 };
 
-// TODO: Consider a typed RenderContext for the ctx parameter once its shape
-// stabilises beyond focus. Currently anytype is sufficient — it accepts any
-// struct with the right per-domain FocusStack fields — but a concrete type
-// would catch call-site mistakes at compile time.
+// ctx in Layout.panels() is anytype — it accepts any struct whose fields match
+// the domain ids declared in the blueprint. This catches wrong field names at
+// compile time via @field, but not wrong types. A typed RenderContext would
+// give better error messages; the cost is coupling the type to the blueprint.
 
 /// Generic depth-first tree-walker. Collects one value of type T per leaf pane,
 /// in the same left-to-right order as solve(). Ex must be a namespace with a
@@ -695,7 +695,7 @@ test "Layout.panels: domain focus never bleeds across domain boundaries" {
     try std.testing.expect(result.dd.focused);
 }
 
-test "Layout.panels: backward compat — blueprint without domains accepts ctx.focus" {
+test "Layout.panels: blueprint without domains uses ctx.focus for global focus state" {
     const p  = @import("../layout/blueprint.zig").pane;
     const vs = @import("../layout/blueprint.zig").hsplit;
     const FocusStack_ = @import("../core/focus.zig").FocusStack;

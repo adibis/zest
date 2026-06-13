@@ -119,9 +119,10 @@ test "Focus: set() is no-op when count is 0" {
     try std.testing.expectEqual(0, f.active());
 }
 
-// TODO: make FocusStack generic — FocusStackT(comptime capacity: usize) — so
-// apps control modal nesting depth at compile time. Defer until the modal API
-// stabilises; the current 8-level fixed cost (128 bytes per stack) is negligible.
+// FocusStack has a fixed capacity of 8. Generalizing it to a comptime size
+// would let apps tune memory vs. nesting depth, but requires a stable modal API
+// to know what the right capacity range actually is. The 128-byte fixed cost per
+// stack is negligible; revisit if deep modal nesting becomes a real use case.
 const focus_stack_capacity = 8;
 
 /// A stack of Focus objects for hierarchical focus management.
