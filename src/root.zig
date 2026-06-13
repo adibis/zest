@@ -18,10 +18,6 @@ pub const pane = @import("layout/blueprint.zig").pane;
 pub const hsplit = @import("layout/blueprint.zig").hsplit;
 pub const vsplit = @import("layout/blueprint.zig").vsplit;
 pub const domain = @import("layout/blueprint.zig").domain;
-// TODO: remove solve from the public API — apps use Layout.panels(), which
-// calls solveInto() internally. solve() is an allocating escape hatch that
-// leaks an implementation detail. Remove once we confirm no caller needs it.
-pub const solve = @import("layout/solver.zig").solve;
 pub const Layout = @import("widgets/box.zig").Layout;
 pub const Text = @import("widgets/text.zig").Text;
 pub const List        = @import("widgets/list.zig").List; // generic: List(C)
