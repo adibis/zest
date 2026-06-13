@@ -203,7 +203,7 @@ fn focusableCountInDomain(comptime Blueprint: type, comptime target: [:0]const u
 pub const Layout = struct {
     /// Returns the number of focusable leaf panes in Blueprint — use this to
     /// initialize a FocusStack so Tab cycling never lands on display-only panes.
-    fn focusablePanelCount(comptime Blueprint: type) usize {
+    pub fn focusablePanelCount(comptime Blueprint: type) usize {
         return focusableLeafCount(Blueprint);
     }
 
@@ -213,7 +213,7 @@ pub const Layout = struct {
     ///   state.focus_sidebar = FocusStack.init(Focus.init(
     ///       Layout.focusablePanelCountInDomain(layout, "sidebar"),
     ///   ));
-    fn focusablePanelCountInDomain(comptime Blueprint: type, comptime domain_id: [:0]const u8) usize {
+    pub fn focusablePanelCountInDomain(comptime Blueprint: type, comptime domain_id: [:0]const u8) usize {
         return focusableCountInDomain(Blueprint, domain_id);
     }
 
