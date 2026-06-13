@@ -28,9 +28,10 @@ pub const Panel = struct {
     focused: bool,
 };
 
-// TODO: Introduce a typed RenderContext (theme, focus, etc.) once the theme
-// system is finalised. panels() currently accepts ctx: anytype to avoid locking
-// in the shape before we know what belongs here.
+// TODO: Consider a typed RenderContext for the ctx parameter once its shape
+// stabilises beyond focus. Currently anytype is sufficient — it accepts any
+// struct with the right per-domain FocusStack fields — but a concrete type
+// would catch call-site mistakes at compile time.
 
 // TODO: leafFocusable, leafBorders, and leafIds are structurally identical
 // tree-walkers that differ only in what they extract from each leaf. Once the
