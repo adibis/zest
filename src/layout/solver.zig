@@ -92,7 +92,7 @@ pub fn solveInto(comptime Blueprint: type, bounds: Rect, dst: []Rect) void {
                 cursor +|= w;
             },
             .percent => |p| {
-                std.debug.assert(p <= 100);
+                if (comptime p > 100) @compileError("percent size must be 0–100");
                 const w: u16 = @intCast(@min(
                     @as(u32, main_axis_size) * p / 100,
                     std.math.maxInt(u16),
