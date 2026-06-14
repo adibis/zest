@@ -32,6 +32,59 @@ pub const Color = enum {
     selection_bg,  selection_fg,
 };
 
+/// Two values keyed by a focus boolean. Use for styles, labels, borders,
+/// or any other value that varies between focused and unfocused.
+///
+///   const border = zest.ByFocus(zest.DefaultStyle){
+///       .focused   = .{ .fg = .color_4 },
+///       .unfocused = .{ .fg = .color_8 },
+///   };
+///   const style = border.pick(panel.focused);
+///
+/// For state axes with more than two variants — list rows with focused vs
+/// unfocused selection, tabbars with active/inactive/hovered, process state
+/// indicators — see ByState, which is keyed on a caller-supplied enum.
+pub fn ByFocus(comptime T: type) type {
+    return struct {
+        focused:   T,
+        unfocused: T,
+
+        /// Returns the matching value for a boolean focus flag.
+        pub fn pick(self: @This(), is_focused: bool) T {
+            return if (is_focused) self.focused else self.unfocused;
+        }
+    };
+}
+
+/// Values keyed by an arbitrary state enum. ByFocus is the binary common
+/// case; this is the general form for widgets with custom state.
+///
+///   const TabState = enum { active, inactive, hovered };
+///   const styles = zest.ByState(TabState, zest.DefaultStyle).init(.{
+///       .active   = .{ .fg = .color_4, .text = .{ .bold = true } },
+///       .inactive = .{ .fg = .color_8 },
+///       .hovered  = .{ .fg = .color_4 },
+///   });
+///   const style = styles.pick(.active);
+pub fn ByState(comptime State: type, comptime T: type) type {
+    return struct {
+        values: std.EnumArray(State, T),
+
+        /// Build a ByState from a struct literal whose field names match
+        /// the variants of State. The parameter type is std.EnumArray's
+        /// own init shape, so the struct literal coerces directly without
+        /// the caller writing `std.EnumArray.init(...)`.
+        pub fn init(values: std.enums.EnumFieldStruct(State, T, null)) @This() {
+            return .{ .values = std.EnumArray(State, T).init(values) };
+        }
+
+        /// Returns the matching value for a given state variant.
+        pub fn pick(self: @This(), state: State) T {
+            return self.values.get(state);
+        }
+    };
+}
+
 /// Additive text decorations. Packed so the entire set fits in one byte.
 pub const TextStyle = packed struct {
     bold:      bool = false,
@@ -298,4 +351,56 @@ test "Theme(C): works with a user-defined color enum" {
     const result = app_theme.resolve(Style(AppColor){ .fg = .fg_role, .bg = .bg_role });
     try std.testing.expectEqual(vaxis.Color{ .index = 7 }, result.fg);
     try std.testing.expectEqual(vaxis.Color{ .index = 0 }, result.bg);
+}
+
+test "ByFocus: pick returns focused value when flag is true" {
+    const styles = ByFocus(u16){ .focused = 42, .unfocused = 7 };
+    try std.testing.expectEqual(@as(u16, 42), styles.pick(true));
+    try std.testing.expectEqual(@as(u16, 7),  styles.pick(false));
+}
+
+test "ByFocus: works with Style(C)" {
+    const styles = ByFocus(Style(Color)){
+        .focused   = .{ .fg = .color_4, .text = .{ .bold = true } },
+        .unfocused = .{ .fg = .color_8 },
+    };
+    const focused = styles.pick(true);
+    try std.testing.expectEqual(@as(?Color, .color_4), focused.fg);
+    try std.testing.expect(focused.text.bold);
+    const unfocused = styles.pick(false);
+    try std.testing.expectEqual(@as(?Color, .color_8), unfocused.fg);
+    try std.testing.expect(!unfocused.text.bold);
+}
+
+test "ByFocus: works with string slices for label switching" {
+    const labels = ByFocus([]const u8){ .focused = "files *", .unfocused = "files" };
+    try std.testing.expectEqualStrings("files *", labels.pick(true));
+    try std.testing.expectEqualStrings("files",   labels.pick(false));
+}
+
+test "ByState: pick returns the matching variant" {
+    const TabState = enum { active, inactive, hovered };
+    const styles = ByState(TabState, u16).init(.{
+        .active   = 100,
+        .inactive = 0,
+        .hovered  = 50,
+    });
+    try std.testing.expectEqual(@as(u16, 100), styles.pick(.active));
+    try std.testing.expectEqual(@as(u16, 0),   styles.pick(.inactive));
+    try std.testing.expectEqual(@as(u16, 50),  styles.pick(.hovered));
+}
+
+test "ByState: works with Style(C) and a custom state enum" {
+    const ListState = enum { selected_focused, selected_unfocused, normal };
+    const styles = ByState(ListState, Style(Color)).init(.{
+        .selected_focused   = .{ .fg = .selection_fg, .bg = .selection_bg },
+        .selected_unfocused = .{ .fg = .color_4 },
+        .normal             = .{},
+    });
+    const focused = styles.pick(.selected_focused);
+    try std.testing.expectEqual(@as(?Color, .selection_fg), focused.fg);
+    try std.testing.expectEqual(@as(?Color, .selection_bg), focused.bg);
+    const normal = styles.pick(.normal);
+    try std.testing.expectEqual(@as(?Color, null), normal.fg);
+    try std.testing.expectEqual(@as(?Color, null), normal.bg);
 }
