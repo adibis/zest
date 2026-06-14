@@ -11,6 +11,10 @@ pub const Event = @import("core/app.zig").Event;
 pub const UpdateResult = @import("core/app.zig").UpdateResult;
 pub const FrameArena = @import("core/memory.zig").FrameArena;
 
+pub const Anchor = @import("core/anchor.zig").Anchor;
+pub const Horizontal = @import("core/anchor.zig").Horizontal;
+pub const Vertical   = @import("core/anchor.zig").Vertical;
+
 pub const Rect = @import("layout/rect.zig").Rect;
 pub const Size = @import("layout/size.zig").Size;
 pub const Direction = @import("layout/blueprint.zig").Direction;
@@ -47,6 +51,7 @@ test {
     // binary. Without these lines, tests in sub-files would compile but never
     // run when you execute `zig build test` against the root module.
     _ = @import("core/memory.zig");
+    _ = @import("core/anchor.zig");
     _ = @import("core/app.zig");
     _ = @import("layout/rect.zig");
     _ = @import("layout/size.zig");
