@@ -129,36 +129,55 @@ pub fn Theme(comptime C: type) type {
     };
 }
 
-/// Per-widget color bindings — maps widget roles to palette tokens.
-/// Store on the widget at construction; pass Theme(C) at draw time.
-/// All token fields are optional: null means terminal default for that role.
+/// Per-widget styling. Stored on the widget at construction; the widget
+/// reads it at draw time alongside the active Theme(C). Roles are keyed by
+/// focus through ByFocus(Style(C)) so apps can give the same UI element
+/// distinct styles when the widget is focused vs unfocused.
 pub fn WidgetTheme(comptime C: type) type {
     return struct {
-        selected_focused_fg:   ?C   = null,
-        selected_focused_bg:   ?C   = null,
-        selected_unfocused_fg: ?C   = null,
-        selected_unfocused_bg: ?C   = null,
-        selected_bold:          bool = true,
+        /// Style applied to a selected entry — list row, tree node, table
+        /// row. The picked variant depends on whether the parent widget is
+        /// focused. Unselected entries are not styled by WidgetTheme; they
+        /// fall through to the caller-supplied theme defaults.
+        selected: ByFocus(Style(C)) = .{
+            .focused   = .{},
+            .unfocused = .{},
+        },
     };
 }
 
-/// Widget theme for the mocha (dark) default. Binds the focused selection
-/// to the theme file's selection_bg/selection_fg roles, which is what every
-/// terminal theme file already configures.
+/// Widget theme for the mocha (dark) default. The focused-selected style
+/// uses the theme file's selection_bg/selection_fg roles — same colors
+/// users already see when selecting text in their ghostty/kitty/alacritty.
 pub const mocha_widget: WidgetTheme(Color) = .{
-    .selected_focused_fg   = .selection_fg,
-    .selected_focused_bg   = .selection_bg,
-    .selected_unfocused_fg = .color_4,
-    .selected_bold         = true,
+    .selected = .{
+        .focused = .{
+            .fg   = .selection_fg,
+            .bg   = .selection_bg,
+            .text = .{ .bold = true },
+        },
+        .unfocused = .{
+            .fg   = .color_4,
+            .text = .{ .bold = true },
+        },
+    },
 };
 
-/// Widget theme for the latte (light) default. Same bindings as mocha_widget;
-/// the visible colors come from whichever Theme(Color) the app is using.
+/// Widget theme for the latte (light) default. Same role bindings as
+/// mocha_widget; the visible colors come from whichever Theme(Color)
+/// the app is using at draw time.
 pub const latte_widget: WidgetTheme(Color) = .{
-    .selected_focused_fg   = .selection_fg,
-    .selected_focused_bg   = .selection_bg,
-    .selected_unfocused_fg = .color_4,
-    .selected_bold         = true,
+    .selected = .{
+        .focused = .{
+            .fg   = .selection_fg,
+            .bg   = .selection_bg,
+            .text = .{ .bold = true },
+        },
+        .unfocused = .{
+            .fg   = .color_4,
+            .text = .{ .bold = true },
+        },
+    },
 };
 
 /// Catppuccin Mocha — dark palette. Hex values lifted verbatim from
@@ -309,34 +328,41 @@ test "catppuccin_latte: background is light" {
     try std.testing.expectEqual(want, catppuccin_latte.colors.get(.background));
 }
 
-test "WidgetTheme: all fields default to null / selected_bold true" {
+test "WidgetTheme: selected defaults to empty Style for both focus variants" {
     const wt: WidgetTheme(Color) = .{};
-    try std.testing.expectEqual(@as(?Color, null), wt.selected_focused_fg);
-    try std.testing.expectEqual(@as(?Color, null), wt.selected_focused_bg);
-    try std.testing.expectEqual(@as(?Color, null), wt.selected_unfocused_fg);
-    try std.testing.expectEqual(@as(?Color, null), wt.selected_unfocused_bg);
-    try std.testing.expect(wt.selected_bold);
+    try std.testing.expectEqual(@as(?Color, null), wt.selected.focused.fg);
+    try std.testing.expectEqual(@as(?Color, null), wt.selected.focused.bg);
+    try std.testing.expect(!wt.selected.focused.text.bold);
+    try std.testing.expectEqual(@as(?Color, null), wt.selected.unfocused.fg);
+    try std.testing.expectEqual(@as(?Color, null), wt.selected.unfocused.bg);
+    try std.testing.expect(!wt.selected.unfocused.text.bold);
 }
 
-test "mocha_widget: focused selection binds to the theme's selection roles" {
-    try std.testing.expectEqual(@as(?Color, .selection_fg), mocha_widget.selected_focused_fg);
-    try std.testing.expectEqual(@as(?Color, .selection_bg), mocha_widget.selected_focused_bg);
+test "mocha_widget: focused selection uses selection_fg/selection_bg and bold" {
+    const focused = mocha_widget.selected.focused;
+    try std.testing.expectEqual(@as(?Color, .selection_fg), focused.fg);
+    try std.testing.expectEqual(@as(?Color, .selection_bg), focused.bg);
+    try std.testing.expect(focused.text.bold);
 }
 
-test "mocha_widget: unfocused fg is color_4 (catppuccin blue), no override bg" {
-    try std.testing.expectEqual(@as(?Color, .color_4), mocha_widget.selected_unfocused_fg);
-    try std.testing.expectEqual(@as(?Color, null),     mocha_widget.selected_unfocused_bg);
+test "mocha_widget: unfocused selection uses color_4 fg, no bg override" {
+    const unfocused = mocha_widget.selected.unfocused;
+    try std.testing.expectEqual(@as(?Color, .color_4), unfocused.fg);
+    try std.testing.expectEqual(@as(?Color, null),     unfocused.bg);
+    try std.testing.expect(unfocused.text.bold);
 }
 
 test "WidgetTheme(C): works with a user-defined color enum" {
     const AppColor = enum { bg, fg, sel };
     const wt: WidgetTheme(AppColor) = .{
-        .selected_focused_fg = .fg,
-        .selected_focused_bg = .sel,
+        .selected = .{
+            .focused   = .{ .fg = .fg, .bg = .sel },
+            .unfocused = .{},
+        },
     };
-    try std.testing.expectEqual(@as(?AppColor, .fg),  wt.selected_focused_fg);
-    try std.testing.expectEqual(@as(?AppColor, .sel), wt.selected_focused_bg);
-    try std.testing.expectEqual(@as(?AppColor, null), wt.selected_unfocused_fg);
+    try std.testing.expectEqual(@as(?AppColor, .fg),  wt.selected.focused.fg);
+    try std.testing.expectEqual(@as(?AppColor, .sel), wt.selected.focused.bg);
+    try std.testing.expectEqual(@as(?AppColor, null), wt.selected.unfocused.fg);
 }
 
 test "Theme(C): works with a user-defined color enum" {

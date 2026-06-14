@@ -66,18 +66,7 @@ pub fn List(comptime C: type) type {
             for (items[self.scroll..visible_end], 0..) |item, i| {
                 const row: u16 = @intCast(i);
                 const cell_style = if (self.scroll + i == self.selected)
-                    theme.resolve(if (focused)
-                        Style(C){
-                            .fg   = self.widget_theme.selected_focused_fg,
-                            .bg   = self.widget_theme.selected_focused_bg,
-                            .text = .{ .bold = self.widget_theme.selected_bold },
-                        }
-                    else
-                        Style(C){
-                            .fg   = self.widget_theme.selected_unfocused_fg,
-                            .bg   = self.widget_theme.selected_unfocused_bg,
-                            .text = .{ .bold = self.widget_theme.selected_bold },
-                        })
+                    theme.resolve(self.widget_theme.selected.pick(focused))
                 else
                     theme.resolve(Style(C){});
                 // Fill the full row so the highlight bg extends to the right edge.
@@ -273,8 +262,10 @@ test "List.handleKey: down/up arrow keys work like j/k" {
 test "List(C): works with a user-defined color enum" {
     const AppColor = enum { bg, fg, sel };
     const app_wt: WidgetTheme(AppColor) = .{
-        .selected_focused_fg = .fg,
-        .selected_focused_bg = .sel,
+        .selected = .{
+            .focused   = .{ .fg = .fg, .bg = .sel },
+            .unfocused = .{},
+        },
     };
     const app_theme: Theme(AppColor) = .{
         .colors = std.EnumArray(AppColor, vaxis.Color).init(.{
