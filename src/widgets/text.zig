@@ -6,10 +6,9 @@
 
 const std = @import("std");
 const vaxis = @import("vaxis");
-const theme_mod  = @import("../core/theme.zig");
-const anchor_mod = @import("../core/anchor.zig");
+const theme_mod = @import("../core/theme.zig");
 
-pub const Anchor = anchor_mod.Anchor;
+pub const Anchor = @import("../core/anchor.zig").Anchor;
 
 pub const DrawOpts = struct {
     /// Where in the window the text sits. Defaults to left/top — the
@@ -44,7 +43,7 @@ pub const Text = struct {
             return;
         }
         const content_w = win.gwidth(text);
-        const off = anchor_mod.resolve(opts.anchor, win.width, win.height, content_w, 1);
+        const off = opts.anchor.resolve(win.width, win.height, content_w, 1);
         _ = win.print(
             &.{.{ .text = text, .style = resolved_style }},
             .{ .wrap = .none, .col_offset = off.col, .row_offset = off.row },
