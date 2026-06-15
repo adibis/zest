@@ -16,7 +16,7 @@ const zest = @import("zest");
 
 const layout = zest.hsplit(.{
     .children = &.{
-        zest.pane(.{ .id = "header", .size = .{ .fixed = 3 }, .focusable = false }),
+        zest.pane(.{ .id = "header", .size = .{ .fixed = 1 }, .focusable = false }),
         zest.vsplit(.{
             .size     = .{ .fraction = 1 },
             .children = &.{
@@ -259,20 +259,33 @@ fn draw(state: *State, win: vaxis.Window) void {
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
         &state.focus);
 
-    // Header strip — yellow content inside a default-color border. The
-    // border style has no bg override, so the outline stays a distinct
-    // stroke around the colored card rather than reading as part of it.
+    // Header — NerdFont powerline pill, centered. Half-circle caps
+    // (U+E0B6 left, U+E0B4 right) hold a yellow ribbon with the title.
+    // Cap glyphs render the yellow shape on default bg; the ribbon
+    // cells carry yellow bg with matching-bg title text. Anchor.resolve
+    // computes the centering offset against the full composite width
+    // so the pill re-centers on every resize. Requires a patched font;
+    // without one the caps render as replacement boxes.
     const header_bg: zest.Color = .color_3;
-    const header_inner = p.header.win.child(.{
-        .border = .{ .where = .all },
-    });
-    header_inner.fill(.{
-        .char  = .{ .grapheme = " ", .width = 1 },
-        .style = theme.resolve(zest.DefaultStyle{ .bg = header_bg }),
-    });
-    zest.Text.draw(header_inner, "zest demo",
-        zest.DefaultStyle{ .fg = .background, .bg = header_bg, .text = .{ .bold = true } },
-        theme, .{});
+    const title = " zest demo ";
+    const ribbon_w: u16 = @intCast(title.len);
+    const composite_w: u16 = ribbon_w + 2; // +2 for the caps
+
+    const off = (zest.Anchor{ .horizontal = .center, .vertical = .top })
+        .resolve(p.header.win.width, p.header.win.height, composite_w, 1);
+
+    _ = p.header.win.print(&.{
+        .{ .text  = "\u{E0B6}", //
+           .style = .{ .fg = theme.colors.get(header_bg), .bg = .default } },
+        .{ .text  = title,
+           .style = theme.resolve(zest.DefaultStyle{
+               .fg   = .background,
+               .bg   = header_bg,
+               .text = .{ .bold = true },
+           }) },
+        .{ .text  = "\u{E0B4}", //
+           .style = .{ .fg = theme.colors.get(header_bg), .bg = .default } },
+    }, .{ .wrap = .none, .col_offset = off.col, .row_offset = off.row });
 
     const files_inner = drawSidebarPane(p.files, "1 files", theme);
     _ = drawSidebarPane(p.branches, "2 branches", theme);
