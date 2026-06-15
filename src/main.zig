@@ -16,7 +16,7 @@ const zest = @import("zest");
 
 const layout = zest.hsplit(.{
     .children = &.{
-        zest.pane(.{ .id = "header", .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
+        zest.pane(.{ .id = "header", .size = .{ .fixed = 3 }, .focusable = false }),
         zest.vsplit(.{
             .size     = .{ .fraction = 1 },
             .children = &.{
@@ -25,10 +25,10 @@ const layout = zest.hsplit(.{
                     .direction = zest.Direction.vertical,
                     .size      = .{ .percent = 25 },
                     .children  = &.{
-                        zest.pane(.{ .id = "files",    .size = .{ .fraction = 1 }, .border = true }),
-                        zest.pane(.{ .id = "branches", .size = .{ .fraction = 1 }, .border = true }),
-                        zest.pane(.{ .id = "commits",  .size = .{ .fraction = 1 }, .border = true }),
-                        zest.pane(.{ .id = "stash",    .size = .{ .fraction = 1 }, .border = true }),
+                        zest.pane(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                        zest.pane(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                        zest.pane(.{ .id = "commits",  .size = .{ .fraction = 1 } }),
+                        zest.pane(.{ .id = "stash",    .size = .{ .fraction = 1 } }),
                     },
                 }),
                 zest.domain(.{
@@ -90,11 +90,19 @@ const diff_theme: zest.Theme(DiffColor) = .{
     }),
 };
 
-fn diffStyle(fg: ?DiffColor) vaxis.Cell.Style {
-    return diff_theme.resolve(zest.Style(DiffColor){ .fg = fg });
+// diffStyle / diffStyleBold take a bg so every cell drawn inside the
+// showcase panel sits on the same chrome lift — without it, each text
+// write would punch through the panel's filled background with its own
+// terminal-default bg.
+fn diffStyle(fg: ?DiffColor, bg: vaxis.Color) vaxis.Cell.Style {
+    var s = diff_theme.resolve(zest.Style(DiffColor){ .fg = fg });
+    s.bg = bg;
+    return s;
 }
-fn diffStyleBold(fg: ?DiffColor) vaxis.Cell.Style {
-    return diff_theme.resolve(zest.Style(DiffColor){ .fg = fg, .text = .{ .bold = true } });
+fn diffStyleBold(fg: ?DiffColor, bg: vaxis.Color) vaxis.Cell.Style {
+    var s = diff_theme.resolve(zest.Style(DiffColor){ .fg = fg, .text = .{ .bold = true } });
+    s.bg = bg;
+    return s;
 }
 
 // --- State -------------------------------------------------------------------
@@ -112,19 +120,34 @@ fn activeFocus(state: *State) *zest.FocusStack {
 // --- Draw --------------------------------------------------------------------
 
 fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, theme: zest.DefaultTheme) void {
-    const border_style = if (focused)
-        theme.resolve(zest.DefaultStyle{ .fg = .color_4 })
-    else
-        theme.resolve(zest.DefaultStyle{});
-    const inner = win.child(.{ .border = .{ .where = .all, .style = border_style } });
+    // Chrome lift for the diff panel — content inside the border sits on
+    // a slightly raised surface. The border itself keeps the shared
+    // focus-driven fg style with no bg override, so the outline reads
+    // as a distinct stroke around the lifted content rather than as
+    // part of the colored area.
+    const lift: zest.Color = .color_0;
+    const lift_resolved = theme.resolve(zest.DefaultStyle{ .bg = lift }).bg;
+
+    const inner = win.child(.{
+        .border = .{ .where = .all, .style = theme.resolve(border_styles.pick(focused)) },
+    });
     if (inner.height == 0) return;
 
-    // Title row — sidebar selection shown in current theme
+    inner.fill(.{
+        .char  = .{ .grapheme = " ", .width = 1 },
+        .style = theme.resolve(zest.DefaultStyle{ .bg = lift }),
+    });
+
+    // Title row — bold accent on the showcase label, muted file name beside it.
     _ = inner.print(&.{
-        .{ .text = if (focused) "showcase [*]  " else "showcase      ",
-           .style = theme.resolve(zest.DefaultStyle{ .fg = .color_4, .text = .{ .bold = true } }) },
+        .{ .text = "showcase  ",
+           .style = theme.resolve(zest.DefaultStyle{
+               .fg   = if (focused) .color_4 else null,
+               .bg   = lift,
+               .text = .{ .bold = focused },
+           }) },
         .{ .text = selected_file,
-           .style = theme.resolve(zest.DefaultStyle{ .fg = .color_7 }) },
+           .style = theme.resolve(zest.DefaultStyle{ .fg = .color_7, .bg = lift }) },
     }, .{ .row_offset = 0 });
 
     if (inner.height < 3) return;
@@ -132,13 +155,13 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     // Subtitle — identifies what Theme(C) is doing here
     _ = inner.print(&.{.{
         .text = "─── Theme(DiffColor) — indexed palette, works on all terminals ─────────────────────",
-        .style = diffStyle(.chrome),
+        .style = diffStyle(.chrome, lift_resolved),
     }}, .{ .row_offset = 1 });
 
     var row: u16 = 2;
 
     // Recent commit log
-    _ = inner.print(&.{.{ .text = "─── git log --oneline ──────────────────────────────────────────────────────────────────", .style = diffStyle(.chrome) }}, .{ .row_offset = row }); row += 1;
+    _ = inner.print(&.{.{ .text = "─── git log --oneline ──────────────────────────────────────────────────────────────────", .style = diffStyle(.chrome, lift_resolved) }}, .{ .row_offset = row }); row += 1;
     const commits = [_]struct { hash: []const u8, msg: []const u8 }{
         .{ .hash = "fa32d37", .msg = "  Make List(C) generic, storing widget color bindings on the widget" },
         .{ .hash = "3022e22", .msg = "  Add WidgetTheme(C) for per-widget color role configuration" },
@@ -147,14 +170,14 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     };
     for (commits) |c| {
         _ = inner.print(&.{
-            .{ .text = c.hash, .style = diffStyleBold(.label) },
-            .{ .text = c.msg,  .style = diffStyle(.chrome) },
+            .{ .text = c.hash, .style = diffStyleBold(.label, lift_resolved) },
+            .{ .text = c.msg,  .style = diffStyle(.chrome, lift_resolved) },
         }, .{ .row_offset = row }); row += 1;
     }
     row += 1;
 
     // Diff stat bars
-    _ = inner.print(&.{.{ .text = "─── git diff --stat fa32d37 ────────────────────────────────────────────────────────────", .style = diffStyle(.chrome) }}, .{ .row_offset = row }); row += 1;
+    _ = inner.print(&.{.{ .text = "─── git diff --stat fa32d37 ────────────────────────────────────────────────────────────", .style = diffStyle(.chrome, lift_resolved) }}, .{ .row_offset = row }); row += 1;
 
     const stats = [_]struct { file: []const u8, n: []const u8, add: []const u8, del: []const u8 }{
         .{ .file = " src/widgets/list.zig  ", .n = "142 ", .add = "++++++++++++++++++++++++++++++++", .del = "────────────────────────" },
@@ -163,43 +186,65 @@ fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, the
     };
     for (stats) |s| {
         _ = inner.print(&.{
-            .{ .text = s.file, .style = diffStyleBold(.label)   },
-            .{ .text = "│ ",   .style = diffStyle(.chrome)   },
-            .{ .text = s.n,    .style = diffStyle(.chrome)   },
-            .{ .text = s.add,  .style = diffStyle(.added)    },
-            .{ .text = s.del,  .style = diffStyle(.removed)  },
+            .{ .text = s.file, .style = diffStyleBold(.label, lift_resolved) },
+            .{ .text = "│ ",   .style = diffStyle(.chrome, lift_resolved) },
+            .{ .text = s.n,    .style = diffStyle(.chrome, lift_resolved) },
+            .{ .text = s.add,  .style = diffStyle(.added,  lift_resolved) },
+            .{ .text = s.del,  .style = diffStyle(.removed, lift_resolved) },
         }, .{ .row_offset = row }); row += 1;
     }
     _ = inner.print(&.{.{
         .text = " 3 files changed, 208 insertions(+), 98 deletions(-)",
-        .style = diffStyle(.meta),
+        .style = diffStyle(.meta, lift_resolved),
     }}, .{ .row_offset = row }); row += 1;
     row += 1;
 
     // Code diff snippet — the actual Theme(C) refactor
-    _ = inner.print(&.{.{ .text = "─── src/core/theme.zig ─────────────────────────────────────────────────────────────────", .style = diffStyle(.chrome) }}, .{ .row_offset = row }); row += 1;
+    _ = inner.print(&.{.{ .text = "─── src/core/theme.zig ─────────────────────────────────────────────────────────────────", .style = diffStyle(.chrome, lift_resolved) }}, .{ .row_offset = row }); row += 1;
 
     const diff_lines = [_]struct { prefix: []const u8, code: []const u8, color: DiffColor }{
-        .{ .prefix = "  ", .code = " pub const Style = struct {",                       .color = .chrome  },
-        .{ .prefix = "- ", .code = "     fg:   Color     = .default,",                 .color = .removed },
-        .{ .prefix = "- ", .code = "     bg:   Color     = .default,",                 .color = .removed },
-        .{ .prefix = "  ", .code = "     text: TextStyle = .{},",                      .color = .chrome  },
-        .{ .prefix = "  ", .code = " };",                                               .color = .chrome  },
-        .{ .prefix = "+ ", .code = " pub fn Style(comptime C: type) type {",           .color = .added   },
-        .{ .prefix = "+ ", .code = "     return struct {",                             .color = .added   },
-        .{ .prefix = "+ ", .code = "         fg:   ?C        = null,",                 .color = .added   },
-        .{ .prefix = "+ ", .code = "         bg:   ?C        = null,",                 .color = .added   },
-        .{ .prefix = "+ ", .code = "         text: TextStyle = .{},",                  .color = .added   },
-        .{ .prefix = "+ ", .code = "     };",                                          .color = .added   },
-        .{ .prefix = "+ ", .code = " }",                                               .color = .added   },
+        .{ .prefix = "  ", .code = " pub const Style = struct {",             .color = .chrome  },
+        .{ .prefix = "- ", .code = "     fg:   Color     = .default,",        .color = .removed },
+        .{ .prefix = "- ", .code = "     bg:   Color     = .default,",        .color = .removed },
+        .{ .prefix = "  ", .code = "     text: TextStyle = .{},",             .color = .chrome  },
+        .{ .prefix = "  ", .code = " };",                                     .color = .chrome  },
+        .{ .prefix = "+ ", .code = " pub fn Style(comptime C: type) type {",  .color = .added   },
+        .{ .prefix = "+ ", .code = "     return struct {",                    .color = .added   },
+        .{ .prefix = "+ ", .code = "         fg:   ?C        = null,",        .color = .added   },
+        .{ .prefix = "+ ", .code = "         bg:   ?C        = null,",        .color = .added   },
+        .{ .prefix = "+ ", .code = "         text: TextStyle = .{},",         .color = .added   },
+        .{ .prefix = "+ ", .code = "     };",                                 .color = .added   },
+        .{ .prefix = "+ ", .code = " }",                                      .color = .added   },
     };
     for (diff_lines) |l| {
         _ = inner.print(&.{
-            .{ .text = l.prefix, .style = diffStyleBold(l.color) },
-            .{ .text = l.code,   .style = diffStyle(l.color)  },
+            .{ .text = l.prefix, .style = diffStyleBold(l.color, lift_resolved) },
+            .{ .text = l.code,   .style = diffStyle(l.color, lift_resolved) },
         }, .{ .row_offset = row }); row += 1;
         if (row >= inner.height) break;
     }
+}
+
+// Shared styling pairs — every focusable pane uses the same focus/unfocus
+// styling for its border and its title label. Declaring them once keeps the
+// individual draw calls down to one focus-aware call each.
+const border_styles = zest.ByFocus(zest.DefaultStyle){
+    .focused   = .{ .fg = .color_4 },
+    .unfocused = .{ .fg = .color_8 },
+};
+const label_styles = zest.ByFocus(zest.DefaultStyle){
+    .focused   = .{ .fg = .color_4, .text = .{ .bold = true } },
+    .unfocused = .{},
+};
+
+fn drawSidebarPane(panel: zest.Panel, label: []const u8, theme: zest.DefaultTheme) vaxis.Window {
+    const inner = panel.win.child(.{
+        .border = .{ .where = .all, .style = theme.resolve(border_styles.pick(panel.focused)) },
+    });
+    if (inner.height > 0) {
+        zest.Text.draw(inner, label, label_styles.pick(panel.focused), theme, .{});
+    }
+    return inner;
 }
 
 fn draw(state: *State, win: vaxis.Window) void {
@@ -214,24 +259,36 @@ fn draw(state: *State, win: vaxis.Window) void {
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
         &state.focus);
 
-    zest.Text.draw(p.header.win, "zest demo", zest.DefaultStyle{ .fg = .color_5, .text = .{ .bold = true } }, theme);
+    // Header strip — yellow content inside a default-color border. The
+    // border style has no bg override, so the outline stays a distinct
+    // stroke around the colored card rather than reading as part of it.
+    const header_bg: zest.Color = .color_3;
+    const header_inner = p.header.win.child(.{
+        .border = .{ .where = .all },
+    });
+    header_inner.fill(.{
+        .char  = .{ .grapheme = " ", .width = 1 },
+        .style = theme.resolve(zest.DefaultStyle{ .bg = header_bg }),
+    });
+    zest.Text.draw(header_inner, "zest demo",
+        zest.DefaultStyle{ .fg = .background, .bg = header_bg, .text = .{ .bold = true } },
+        theme, .{});
 
-    const focus_style = zest.DefaultStyle{ .fg = .color_4, .text = .{ .bold = true } };
-    zest.Text.draw(p.files.win,    if (p.files.focused)    "1 files [*]"    else "1 files",    if (p.files.focused)    focus_style else zest.DefaultStyle{}, theme);
-    zest.Text.draw(p.branches.win, if (p.branches.focused) "2 branches [*]" else "2 branches", if (p.branches.focused) focus_style else zest.DefaultStyle{}, theme);
-    zest.Text.draw(p.commits.win,  if (p.commits.focused)  "3 commits [*]"  else "3 commits",  if (p.commits.focused)  focus_style else zest.DefaultStyle{}, theme);
-    zest.Text.draw(p.stash.win,    if (p.stash.focused)    "4 stash [*]"    else "4 stash",    if (p.stash.focused)    focus_style else zest.DefaultStyle{}, theme);
+    const files_inner = drawSidebarPane(p.files, "1 files", theme);
+    _ = drawSidebarPane(p.branches, "2 branches", theme);
+    _ = drawSidebarPane(p.commits,  "3 commits",  theme);
+    _ = drawSidebarPane(p.stash,    "4 stash",    theme);
 
-    const list_win = p.files.win.child(.{ .y_off = 1, .height = p.files.win.height -| 1 });
+    const list_win = files_inner.child(.{ .y_off = 1, .height = files_inner.height -| 1 });
     state.files_list.draw(list_win, &files_items, p.files.focused, theme);
 
-    drawShowcase(p.showcase.win, p.showcase.focused, files_items[state.files_list.selected], theme);
+    drawShowcase(p.showcase.win, p.showcase.focused,
+        files_items[state.files_list.selected], theme);
 
-    zest.Text.draw(p.log.win, "log", zest.DefaultStyle{ .fg = .color_7 }, theme);
+    zest.Text.draw(p.log.win, "log", zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
     zest.Text.draw(p.footer.win,
         "tab: cycle  j/k: navigate  ^W: switch  0-4: jump  q: quit",
-        zest.DefaultStyle{ .fg = .color_7 }, theme);
-
+        zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
 }
 
 fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.UpdateResult {
