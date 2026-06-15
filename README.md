@@ -145,9 +145,21 @@ Panes declared with `focusable = false` are excluded from Tab cycling and always
 
 Widgets are structs with explicit state — scroll position, cursor, selection index. Application data is passed in at draw time. This keeps widgets reusable and keeps your data model in control.
 
-### Design Token Styling
+### Themeable Styling
 
-Colors and text styles are expressed as named tokens (`primary`, `danger`, `surface`, `muted`) rather than raw color codes. A theme maps tokens to concrete terminal colors at render time. `Theme(C)` and `Style(C)` are generic over any caller-supplied enum, so domain-specific palettes (e.g. diff annotations, severity levels) coexist with the built-in Catppuccin palette without global state.
+`Theme(C)` and `Style(C)` are generic over a caller-supplied color enum. The library ships an anonymous 23-slot built-in `Color` (16 ANSI palette + 6 universal UI roles: `background`, `foreground`, `cursor_color`, `cursor_text`, `selection_bg`, `selection_fg`) shaped to map 1:1 onto ghostty / kitty / alacritty theme files. Apps that want semantic role names — `chat_text`, `my_nick`, `diff_added` — define their own enum and a `Theme(MyColor)` value, and use it alongside the built-in palette in the same draw call.
+
+`ByFocus(T)` and `ByState(E, T)` are small generic primitives for values that vary with a UI state. Declare once, pick at draw time:
+
+```zig
+const border: zest.ByFocus(zest.DefaultStyle) = .{
+    .focused   = .{ .fg = .color_4 },
+    .unfocused = .{ .fg = .color_8 },
+};
+const style = border.pick(panel.focused);
+```
+
+`Anchor` places content inside its window: `left/center/right` × `top/middle/bottom`. Widgets take it through a draw-time `opts.anchor` — `Text.draw` passes the call through `anchor.resolve` to position the text without manual offset math.
 
 ### Enforced Update/Draw Separation
 
@@ -254,11 +266,12 @@ fn activeFocus(state: *State) *zest.FocusStack {
 // In main():
 state.focus = zest.Layout.focusStateInit(layout);
 
-// In draw() — pass each domain's stack or null for the inactive domain:
-const p = zest.Layout.panels(layout, win,
+// In draw() — panelsFromState reads active_domain off the focus state
+// and stamps focused = true on the right pane in the right domain.
+// No per-domain optional pointers; no boilerplate at the call site.
+const p = zest.Layout.panelsFromState(layout, win,
     .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
-    .{ .sidebar = if (state.focus.active_domain == .sidebar) &state.focus.sidebar.stack else null,
-       .main    = if (state.focus.active_domain == .main)    &state.focus.main.stack    else null });
+    &state.focus);
 ```
 
 Domain switching and panel navigation use enum literals — no strings, no integers, no index arithmetic:
@@ -291,7 +304,9 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
 
 fn draw(state: *State, win: vaxis.Window) void {
     win.clear();
-    const p = zest.Layout.panels(layout, win, ...);
+    const p = zest.Layout.panelsFromState(layout, win,
+        .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
+        &state.focus);
     // render p.files.win, p.diff.win, etc.
 }
 
@@ -311,7 +326,7 @@ See [`src/main.zig`](src/main.zig) for the complete demo.
 | 1 — Foundation | libvaxis wiring, event loop, frame arena, resize handling | ✅ Complete |
 | 2 — Layout Engine | Layout types, recursive solver, Layout compositor, named panels | ✅ Complete |
 | 3 — Focus System | FocusStack, Tab cycling, domain focus isolation, non-focusable chrome | ✅ Complete |
-| 4 — Core Widgets | Text, List (virtual scroll), theme system | ✅ Complete |
+| 4 — Core Widgets & Styling | `Text` (with `Anchor` placement), `List(C)`, `Theme(C)` / `Style(C)` / `WidgetTheme(C)`, `ByFocus(T)` / `ByState(E, T)`, Catppuccin presets | ✅ Complete |
 | 5 — Table & Custom Widgets | Data grid, custom widget state protocol | 🔲 Planned |
 | 6 — Release | Dashboard example, benchmark harness, docs, v0.1.0 | 🔲 Planned |
 
