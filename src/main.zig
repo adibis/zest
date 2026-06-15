@@ -340,10 +340,11 @@ pub fn main(init: std.process.Init) !void {
     var app = try zest.App.init(init.io, init.gpa, init.environ_map, &tty_buf);
     defer app.deinit();
 
-    var state: State = undefined;
-    state.focus       = zest.Layout.focusStateInit(layout);
-    state.color_scheme = .dark;
-    state.files_list   = .{ .widget_theme = zest.mocha_widget };
+    var state: State = .{
+        .focus        = zest.Layout.focusStateInit(layout),
+        .color_scheme = .dark,
+        .files_list   = .{ .widget_theme = zest.mocha_widget },
+    };
 
     try app.run(&state, activeFocus, update, draw);
 }
