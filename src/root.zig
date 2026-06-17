@@ -61,6 +61,7 @@ test {
     _ = @import("widgets/box.zig");
     _ = @import("widgets/text.zig");
     _ = @import("widgets/list.zig");
+    _ = @import("widgets/subcell.zig");
     _ = @import("core/focus.zig");
     _ = @import("core/theme.zig");
 }
