@@ -29,6 +29,9 @@ pub const List        = @import("widgets/list.zig").List; // generic: List(C)
 pub const DefaultList = List(Color);
 pub const ProgressBar         = @import("widgets/progress.zig").ProgressBar;          // generic: ProgressBar(C)
 pub const ProgressLabelOverlay = @import("widgets/progress.zig").LabelOverlay;        // generic: LabelOverlay(C)
+pub const Gauge               = @import("widgets/gauge.zig").Gauge;                  // generic: Gauge(C)
+pub const GaugeLabel          = @import("widgets/gauge.zig").Label;                  // generic: Label(C)
+pub const Orientation         = @import("widgets/gauge.zig").Orientation;
 pub const PanelsType = @import("widgets/box.zig").PanelsType;
 pub const Panel = @import("widgets/box.zig").Panel;
 pub const Focus           = @import("core/focus.zig").Focus;
@@ -65,6 +68,7 @@ test {
     _ = @import("widgets/list.zig");
     _ = @import("widgets/subcell.zig");
     _ = @import("widgets/progress.zig");
+    _ = @import("widgets/gauge.zig");
     _ = @import("core/focus.zig");
     _ = @import("core/theme.zig");
 }
