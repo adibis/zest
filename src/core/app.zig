@@ -21,9 +21,28 @@ pub const Event = union(enum) {
     /// Terminal reported its color scheme (dark/light). Fired once at startup
     /// if the terminal supports OSC color scheme queries, and again on change.
     color_scheme: vaxis.Color.Scheme,
+    /// Fired periodically when App.run is started with a non-null
+    /// `tick_interval` in RunOpts. Apps use this to drive time-based UI
+    /// updates — animated progress, blinking cursors, polling external state —
+    /// without running their own thread. Cadence is best-effort at the
+    /// producer: the event queue is bounded, so ticks can be dropped under
+    /// sustained load. Widgets that step state per-tick (Spinner.advance,
+    /// animation steps) should treat each tick as "at least this much time
+    /// has passed" rather than as exact wall-clock samples.
+    tick,
 };
 
 pub const UpdateResult = enum { redraw, quit, idle };
+
+pub const RunOpts = struct {
+    /// Interval between automatic `.tick` events. `null` (the default)
+    /// disables ticks; the event loop only wakes on terminal events. A
+    /// non-null value spawns a worker that posts a `.tick` at the given
+    /// cadence; the worker is cancelled and joined before App.run returns,
+    /// so shutdown latency is bounded by the time it takes std.Io.sleep to
+    /// observe cancellation (typically microseconds).
+    tick_interval: ?std.Io.Duration = null,
+};
 
 pub const App = struct {
     io: std.Io,
@@ -89,6 +108,7 @@ pub const App = struct {
         comptime activeFocus: fn (@TypeOf(ctx)) *FocusStack,
         comptime update: fn (@TypeOf(ctx), Event, std.mem.Allocator) UpdateResult,
         comptime draw: fn (@TypeOf(ctx), vaxis.Window) void,
+        opts: RunOpts,
     ) !void {
         // loop is created here, not stored on App, because vaxis.Loop stores
         // *Tty and *Vaxis pointers internally. If loop were a field of App,
@@ -100,11 +120,33 @@ pub const App = struct {
         try loop.start();
         defer loop.stop();
 
+        // Init steps that can fail go first so a failure here exits cleanly
+        // via the loop.stop() defer without ever having spawned the tick
+        // worker. Spawning the worker only after all `try` calls keeps the
+        // error path free of "is there an orphaned future to await" reasoning.
         try self.vx.enterAltScreen(self.tty.writer());
         try self.vx.queryTerminal(self.tty.writer(), .fromSeconds(1));
         // Request the terminal's current color scheme; the response arrives as
         // a color_scheme event. No-op on terminals that don't support it.
         try self.vx.subscribeToColorSchemeUpdates(self.tty.writer());
+
+        // Tick worker — only spawned when opts.tick_interval is non-null. The
+        // deferred cancel signals stop and interrupts the in-flight sleep, so
+        // shutdown does not wait for the next tick boundary. The cancel runs
+        // before loop.stop() by LIFO defer order, so the worker's *loop pointer
+        // stays valid through the cancellation.
+        var tick_stop: std.atomic.Value(bool) = .init(false);
+        var tick_thread: ?std.Io.Future(void) = null;
+        defer if (tick_thread) |*t| {
+            tick_stop.store(true, .release);
+            t.cancel(self.io);
+        };
+        if (opts.tick_interval) |interval| {
+            tick_thread = try self.io.concurrent(
+                tickWorker,
+                .{ self.io, &loop, interval, &tick_stop },
+            );
+        }
 
         while (true) {
             const event = try loop.nextEvent();
@@ -138,6 +180,33 @@ pub const App = struct {
         }
     }
 };
+
+/// Posts a `.tick` event at `interval` until cancelled. The worker exits on
+/// `error.Canceled` from either sleep or tryPostEvent — that's the deferred
+/// Future.cancel in App.run signalling shutdown. The stop flag is a safety
+/// net for spurious wakeups: a wake that isn't a cancellation still checks
+/// the flag before posting.
+///
+/// A queue-full transient is handled by the bool return of tryPostEvent and
+/// is intentionally ignored; the next interval will produce another tick.
+/// Persistent post failures (OutOfMemory or any future error variant) break
+/// the loop rather than spinning, so a wedged event queue can't pin a CPU.
+fn tickWorker(
+    io: std.Io,
+    loop: *vaxis.Loop(Event),
+    interval: std.Io.Duration,
+    stop: *std.atomic.Value(bool),
+) void {
+    while (!stop.load(.acquire)) {
+        std.Io.sleep(io, interval, .awake) catch |err| switch (err) {
+            error.Canceled => break,
+        };
+        if (stop.load(.acquire)) break;
+        _ = loop.tryPostEvent(.tick) catch |err| switch (err) {
+            error.Canceled => break,
+        };
+    }
+}
 
 /// Returns true and advances or retreats focus if event is Tab or Shift-Tab.
 /// Returns false and leaves focus untouched for all other events.

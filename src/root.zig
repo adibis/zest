@@ -9,6 +9,7 @@ const std = @import("std");
 pub const App = @import("core/app.zig").App;
 pub const Event = @import("core/app.zig").Event;
 pub const UpdateResult = @import("core/app.zig").UpdateResult;
+pub const RunOpts = @import("core/app.zig").RunOpts;
 pub const FrameArena = @import("core/memory.zig").FrameArena;
 
 pub const Anchor = @import("core/anchor.zig").Anchor;

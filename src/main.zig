@@ -359,5 +359,5 @@ pub fn main(init: std.process.Init) !void {
         .files_list   = .{ .widget_theme = zest.mocha_widget },
     };
 
-    try app.run(&state, activeFocus, update, draw);
+    try app.run(&state, activeFocus, update, draw, .{});
 }
