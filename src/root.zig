@@ -32,6 +32,8 @@ pub const ProgressLabelOverlay = @import("widgets/progress.zig").LabelOverlay;  
 pub const Gauge               = @import("widgets/gauge.zig").Gauge;                  // generic: Gauge(C)
 pub const GaugeLabel          = @import("widgets/gauge.zig").Label;                  // generic: Label(C)
 pub const Orientation         = @import("widgets/gauge.zig").Orientation;
+pub const Spinner             = @import("widgets/spinner.zig").Spinner;              // generic: Spinner(C)
+pub const spinner_frames      = @import("widgets/spinner.zig").frame_sets;
 pub const PanelsType = @import("widgets/box.zig").PanelsType;
 pub const Panel = @import("widgets/box.zig").Panel;
 pub const Focus           = @import("core/focus.zig").Focus;
@@ -69,6 +71,7 @@ test {
     _ = @import("widgets/subcell.zig");
     _ = @import("widgets/progress.zig");
     _ = @import("widgets/gauge.zig");
+    _ = @import("widgets/spinner.zig");
     _ = @import("core/focus.zig");
     _ = @import("core/theme.zig");
 }
