@@ -35,6 +35,9 @@ pub const Orientation         = @import("widgets/gauge.zig").Orientation;
 pub const Spinner             = @import("widgets/spinner.zig").Spinner;              // generic: Spinner(C)
 pub const spinner_frames      = @import("widgets/spinner.zig").frame_sets;
 pub const Sparkline           = @import("widgets/sparkline.zig").Sparkline;          // generic: Sparkline(C)
+pub const TitleBar            = @import("widgets/title_bar.zig").TitleBar;           // generic: TitleBar(C)
+pub const TitleOpts           = @import("widgets/title_bar.zig").TitleOpts;          // generic: TitleOpts(C)
+pub const TitleCaps           = @import("widgets/title_bar.zig").Caps;
 pub const PanelsType = @import("widgets/box.zig").PanelsType;
 pub const Panel = @import("widgets/box.zig").Panel;
 pub const Focus           = @import("core/focus.zig").Focus;
@@ -74,6 +77,7 @@ test {
     _ = @import("widgets/gauge.zig");
     _ = @import("widgets/spinner.zig");
     _ = @import("widgets/sparkline.zig");
+    _ = @import("widgets/title_bar.zig");
     _ = @import("core/focus.zig");
     _ = @import("core/theme.zig");
 }
