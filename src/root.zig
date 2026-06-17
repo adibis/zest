@@ -27,6 +27,8 @@ pub const Layout = @import("widgets/box.zig").Layout;
 pub const Text = @import("widgets/text.zig").Text;
 pub const List        = @import("widgets/list.zig").List; // generic: List(C)
 pub const DefaultList = List(Color);
+pub const ProgressBar         = @import("widgets/progress.zig").ProgressBar;          // generic: ProgressBar(C)
+pub const ProgressLabelOverlay = @import("widgets/progress.zig").LabelOverlay;        // generic: LabelOverlay(C)
 pub const PanelsType = @import("widgets/box.zig").PanelsType;
 pub const Panel = @import("widgets/box.zig").Panel;
 pub const Focus           = @import("core/focus.zig").Focus;
@@ -62,6 +64,7 @@ test {
     _ = @import("widgets/text.zig");
     _ = @import("widgets/list.zig");
     _ = @import("widgets/subcell.zig");
+    _ = @import("widgets/progress.zig");
     _ = @import("core/focus.zig");
     _ = @import("core/theme.zig");
 }
