@@ -126,6 +126,30 @@ pub fn Theme(comptime C: type) type {
                 .reverse  = style.text.reverse,
             };
         }
+
+        /// Returns a Theme(C) where every role maps to `vaxis.Color.default`.
+        /// Apps that want to honour the NO_COLOR convention
+        /// (https://no-color.org) swap to this theme when the `NO_COLOR`
+        /// environment variable is set:
+        ///
+        ///   const no_color = if (init.environ_map.get("NO_COLOR")) |v|
+        ///       v.len > 0
+        ///   else
+        ///       false;
+        ///   const theme = if (no_color)
+        ///       Theme(Color).noColor()
+        ///   else
+        ///       zest.catppuccin_mocha;
+        ///
+        /// Style(C) values at every call site stay unchanged; resolve()
+        /// emits `.default` for fg and bg regardless of the requested
+        /// role, so widgets render in the terminal's foreground and
+        /// background colours. Text decorations (bold, italic, underline)
+        /// still apply — NO_COLOR is about colour, not type style, per
+        /// the spec.
+        pub fn noColor() @This() {
+            return .{ .colors = std.EnumArray(C, vaxis.Color).initFill(.default) };
+        }
     };
 }
 
@@ -244,6 +268,30 @@ pub const catppuccin_latte: Theme(Color) = .{
         .selection_fg  = .{ .rgb = .{ 0x4c, 0x4f, 0x69 } },
     }),
 };
+
+test "Theme(C).noColor: every role resolves to terminal default" {
+    const t = Theme(Color).noColor();
+    const blue_style = t.resolve(.{ .fg = .color_4 });
+    try std.testing.expectEqual(vaxis.Color.default, blue_style.fg);
+    const bg_style = t.resolve(.{ .bg = .background });
+    try std.testing.expectEqual(vaxis.Color.default, bg_style.bg);
+    const fg_style = t.resolve(.{ .fg = .foreground });
+    try std.testing.expectEqual(vaxis.Color.default, fg_style.fg);
+}
+
+test "Theme(C).noColor: text decorations still apply" {
+    const t = Theme(Color).noColor();
+    const style = t.resolve(.{ .text = .{ .bold = true, .italic = true } });
+    try std.testing.expect(style.bold);
+    try std.testing.expect(style.italic);
+}
+
+test "Theme(C).noColor: works with a user-defined color enum" {
+    const AppColor = enum { accent, danger };
+    const t = Theme(AppColor).noColor();
+    try std.testing.expectEqual(vaxis.Color.default, t.resolve(.{ .fg = .accent }).fg);
+    try std.testing.expectEqual(vaxis.Color.default, t.resolve(.{ .fg = .danger }).fg);
+}
 
 test "Style: all fields default to zero/unset" {
     const s: Style(Color) = .{};
