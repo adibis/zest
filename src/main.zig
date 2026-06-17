@@ -1,9 +1,12 @@
 //! Zest framework demo — two focus domains, scrollable list, custom theme.
 //!
 //! The sidebar uses the built-in Catppuccin palette (Mocha/Latte selected at
-//! runtime from the terminal's reported color scheme). The showcase panel uses
-//! a separate DiffColor enum and diff theme — two Theme(C) instances coexisting
-//! in one draw() call, no global state.
+//! runtime from the terminal's reported color scheme); apps that set
+//! `NO_COLOR` get a no-colour theme regardless. The showcase panel uses a
+//! separate DiffColor enum and diff theme — two Theme(C) instances coexist
+//! in one draw() call, no global state. The bottom strip is a worked
+//! example of every viz widget the framework ships: progress bar, gauge,
+//! sparkline, spinner.
 //!
 //! Tab: cycle within active domain   Ctrl-W: switch domain
 //! j/k or arrows: navigate list      0-4: jump to panel    q: quit
@@ -37,7 +40,25 @@ const layout = zest.hsplit(.{
                     .size      = .{ .fraction = 1 },
                     .children  = &.{
                         zest.pane(.{ .id = "showcase", .size = .{ .fraction = 1 } }),
-                        zest.pane(.{ .id = "log",      .size = .{ .fixed = 5 }, .border = true, .focusable = false }),
+                        // Bottom strip: progress + sparkline stacked on the
+                        // left, a thin vertical gauge on the right. Total
+                        // strip is 6 rows tall — progress and log each take
+                        // 3 rows (one content row plus borders); the gauge
+                        // takes 6 columns (four inner cols, enough for the
+                        // "100%" worst-case label).
+                        zest.vsplit(.{
+                            .size     = .{ .fixed = 6 },
+                            .children = &.{
+                                zest.hsplit(.{
+                                    .size     = .{ .fraction = 1 },
+                                    .children = &.{
+                                        zest.pane(.{ .id = "progress", .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
+                                        zest.pane(.{ .id = "log",      .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
+                                    },
+                                }),
+                                zest.pane(.{ .id = "loading", .size = .{ .fixed = 6 }, .border = true, .focusable = false }),
+                            },
+                        }),
                     },
                 }),
             },
@@ -63,171 +84,60 @@ const files_items = [_][]const u8{
     "src/widgets/text.zig",
 };
 
-// --- Diff theme (showcase panel only) ----------------------------------------
-//
-// DiffColor is a domain-specific token enum — nothing in the framework knows
-// about it. diff_theme is a Theme(DiffColor) that lives only in this file.
-// This demonstrates that two Theme(C) instances can coexist in one draw().
-
-const DiffColor = enum {
-    default,
-    chrome,   // dim — secondary text, context lines, stat chrome
-    label,    // bright green — filenames, hashes, section headers
-    added,    // green — added lines and insertion counts
-    removed,  // red — removed lines and deletion counts
-    meta,     // amber — summary lines, counts
-};
-
-// Indexed palette: renders correctly on every terminal, including Terminal.app.
-const diff_theme: zest.Theme(DiffColor) = .{
-    .colors = std.EnumArray(DiffColor, vaxis.Color).init(.{
-        .default = .default,
-        .chrome  = .default,
-        .label   = .{ .index = 2  },
-        .added   = .{ .index = 2  },
-        .removed = .{ .index = 9  },
-        .meta    = .{ .index = 3  },
-    }),
-};
-
-// diffStyle / diffStyleBold take a bg so every cell drawn inside the
-// showcase panel sits on the same chrome lift — without it, each text
-// write would punch through the panel's filled background with its own
-// terminal-default bg.
-fn diffStyle(fg: ?DiffColor, bg: vaxis.Color) vaxis.Cell.Style {
-    var s = diff_theme.resolve(zest.Style(DiffColor){ .fg = fg });
-    s.bg = bg;
-    return s;
-}
-fn diffStyleBold(fg: ?DiffColor, bg: vaxis.Color) vaxis.Cell.Style {
-    var s = diff_theme.resolve(zest.Style(DiffColor){ .fg = fg, .text = .{ .bold = true } });
-    s.bg = bg;
-    return s;
-}
-
 // --- State -------------------------------------------------------------------
 
 const State = struct {
-    focus:        FocusState,
-    files_list:   zest.DefaultList,
-    color_scheme: vaxis.Color.Scheme,
+    focus:             FocusState,
+    files_list:        zest.DefaultList,
+    color_scheme:      vaxis.Color.Scheme,
+    /// Advanced by .tick events; wraps at 1.0 — drives the progress widget.
+    progress_fraction: f32,
+    /// Stepped to the next frame on every .tick; renders in the footer.
+    spinner:           zest.Spinner(zest.Color),
+    /// Ring of recent progress_fraction samples — drives the log-pane
+    /// sparkline. New samples shift in from the right on every .tick. The
+    /// O(N) shift is a demo simplification for clarity; production code
+    /// should use a ring buffer with a write index.
+    progress_history:  [80]f32,
+    /// True when NO_COLOR is set in the environment at startup. Drives
+    /// the draw-time theme selection.
+    no_color:          bool,
+    /// Per-frame buffer backing the progress bar's overlaid label. Lives
+    /// on State because the formatted slice has to outlive the frame
+    /// (vaxis reads graphemes at render time). Written from draw() each
+    /// frame; safe because App.run calls draw synchronously between
+    /// events and no second writer exists in the demo's threading model.
+    progress_text_buf: [8]u8,
+    /// Same constraints as progress_text_buf — overwritten every frame.
+    gauge_text_buf:    [8]u8,
+    /// Backing buffers for the showcase gallery's per-bar labels.
+    /// Same lifetime rules as the other text buffers.
+    showcase_label_bufs: [3][8]u8,
+    /// Free-running tick count used for showcase spinners. Driving them
+    /// off `spinner.frame_index` would tie them to the footer braille
+    /// spinner's 10-frame modulo and rotate the 4-frame sets at 2.5 Hz
+    /// (uncomfortably fast). A separate u32 counter divided by 4 gives
+    /// ~0.6 Hz rotations — comfortable to look at — while the footer
+    /// keeps its full ~1 Hz braille smoothness.
+    tick_counter:      u32,
 };
 
 fn activeFocus(state: *State) *zest.FocusStack {
     return zest.Layout.focusStateActiveFocus(layout, &state.focus);
 }
 
-// --- Draw --------------------------------------------------------------------
-
-fn drawShowcase(win: vaxis.Window, focused: bool, selected_file: []const u8, theme: zest.DefaultTheme) void {
-    // Chrome lift for the diff panel — content inside the border sits on
-    // a slightly raised surface. The border itself keeps the shared
-    // focus-driven fg style with no bg override, so the outline reads
-    // as a distinct stroke around the lifted content rather than as
-    // part of the colored area.
-    const lift: zest.Color = .color_0;
-    const lift_resolved = theme.resolve(zest.DefaultStyle{ .bg = lift }).bg;
-
-    const inner = win.child(.{
-        .border = .{ .where = .all, .style = theme.resolve(border_styles.pick(focused)) },
-    });
-    if (inner.height == 0) return;
-
-    inner.fill(.{
-        .char  = .{ .grapheme = " ", .width = 1 },
-        .style = theme.resolve(zest.DefaultStyle{ .bg = lift }),
-    });
-
-    // Title row — bold accent on the showcase label, muted file name beside it.
-    _ = inner.print(&.{
-        .{ .text = "showcase  ",
-           .style = theme.resolve(zest.DefaultStyle{
-               .fg   = if (focused) .color_4 else null,
-               .bg   = lift,
-               .text = .{ .bold = focused },
-           }) },
-        .{ .text = selected_file,
-           .style = theme.resolve(zest.DefaultStyle{ .fg = .color_7, .bg = lift }) },
-    }, .{ .row_offset = 0 });
-
-    if (inner.height < 3) return;
-
-    // Subtitle — identifies what Theme(C) is doing here
-    _ = inner.print(&.{.{
-        .text = "─── Theme(DiffColor) — indexed palette, works on all terminals ─────────────────────",
-        .style = diffStyle(.chrome, lift_resolved),
-    }}, .{ .row_offset = 1 });
-
-    var row: u16 = 2;
-
-    // Recent commit log
-    _ = inner.print(&.{.{ .text = "─── git log --oneline ──────────────────────────────────────────────────────────────────", .style = diffStyle(.chrome, lift_resolved) }}, .{ .row_offset = row }); row += 1;
-    const commits = [_]struct { hash: []const u8, msg: []const u8 }{
-        .{ .hash = "fa32d37", .msg = "  Make List(C) generic, storing widget color bindings on the widget" },
-        .{ .hash = "3022e22", .msg = "  Add WidgetTheme(C) for per-widget color role configuration" },
-        .{ .hash = "540051b", .msg = "  Make Theme and Style generic over a user-supplied color enum" },
-        .{ .hash = "b48f941", .msg = "  Decouple list widget tests from theme palette values" },
-    };
-    for (commits) |c| {
-        _ = inner.print(&.{
-            .{ .text = c.hash, .style = diffStyleBold(.label, lift_resolved) },
-            .{ .text = c.msg,  .style = diffStyle(.chrome, lift_resolved) },
-        }, .{ .row_offset = row }); row += 1;
-    }
-    row += 1;
-
-    // Diff stat bars
-    _ = inner.print(&.{.{ .text = "─── git diff --stat fa32d37 ────────────────────────────────────────────────────────────", .style = diffStyle(.chrome, lift_resolved) }}, .{ .row_offset = row }); row += 1;
-
-    const stats = [_]struct { file: []const u8, n: []const u8, add: []const u8, del: []const u8 }{
-        .{ .file = " src/widgets/list.zig  ", .n = "142 ", .add = "++++++++++++++++++++++++++++++++", .del = "────────────────────────" },
-        .{ .file = " src/root.zig          ", .n = "  8 ", .add = "+++++++",                          .del = "─" },
-        .{ .file = " src/main.zig          ", .n = " 58 ", .add = "+++++++++++++++++++++++++++",      .del = "──────────────────" },
-    };
-    for (stats) |s| {
-        _ = inner.print(&.{
-            .{ .text = s.file, .style = diffStyleBold(.label, lift_resolved) },
-            .{ .text = "│ ",   .style = diffStyle(.chrome, lift_resolved) },
-            .{ .text = s.n,    .style = diffStyle(.chrome, lift_resolved) },
-            .{ .text = s.add,  .style = diffStyle(.added,  lift_resolved) },
-            .{ .text = s.del,  .style = diffStyle(.removed, lift_resolved) },
-        }, .{ .row_offset = row }); row += 1;
-    }
-    _ = inner.print(&.{.{
-        .text = " 3 files changed, 208 insertions(+), 98 deletions(-)",
-        .style = diffStyle(.meta, lift_resolved),
-    }}, .{ .row_offset = row }); row += 1;
-    row += 1;
-
-    // Code diff snippet — the actual Theme(C) refactor
-    _ = inner.print(&.{.{ .text = "─── src/core/theme.zig ─────────────────────────────────────────────────────────────────", .style = diffStyle(.chrome, lift_resolved) }}, .{ .row_offset = row }); row += 1;
-
-    const diff_lines = [_]struct { prefix: []const u8, code: []const u8, color: DiffColor }{
-        .{ .prefix = "  ", .code = " pub const Style = struct {",             .color = .chrome  },
-        .{ .prefix = "- ", .code = "     fg:   Color     = .default,",        .color = .removed },
-        .{ .prefix = "- ", .code = "     bg:   Color     = .default,",        .color = .removed },
-        .{ .prefix = "  ", .code = "     text: TextStyle = .{},",             .color = .chrome  },
-        .{ .prefix = "  ", .code = " };",                                     .color = .chrome  },
-        .{ .prefix = "+ ", .code = " pub fn Style(comptime C: type) type {",  .color = .added   },
-        .{ .prefix = "+ ", .code = "     return struct {",                    .color = .added   },
-        .{ .prefix = "+ ", .code = "         fg:   ?C        = null,",        .color = .added   },
-        .{ .prefix = "+ ", .code = "         bg:   ?C        = null,",        .color = .added   },
-        .{ .prefix = "+ ", .code = "         text: TextStyle = .{},",         .color = .added   },
-        .{ .prefix = "+ ", .code = "     };",                                 .color = .added   },
-        .{ .prefix = "+ ", .code = " }",                                      .color = .added   },
-    };
-    for (diff_lines) |l| {
-        _ = inner.print(&.{
-            .{ .text = l.prefix, .style = diffStyleBold(l.color, lift_resolved) },
-            .{ .text = l.code,   .style = diffStyle(l.color, lift_resolved) },
-        }, .{ .row_offset = row }); row += 1;
-        if (row >= inner.height) break;
-    }
+/// Format a fraction in [0,1] as "{N}%" into `buf`. Returns the formatted
+/// slice; the buffer's contents stay stable for the slice's lifetime, so
+/// callers pass a State-owned buffer for frame-spanning use.
+fn fmtPct(buf: []u8, fraction: f32) []const u8 {
+    const pct: u32 = @intFromFloat(std.math.clamp(fraction, 0.0, 1.0) * 100.0);
+    return std.fmt.bufPrint(buf, "{d}%", .{pct}) catch "";
 }
 
-// Shared styling pairs — every focusable pane uses the same focus/unfocus
-// styling for its border and its title label. Declaring them once keeps the
-// individual draw calls down to one focus-aware call each.
+// --- Widget instances --------------------------------------------------------
+
+// Shared focus-aware style pairs. Each focusable bordered pane uses the
+// same border and label styling, declared once.
 const border_styles = zest.ByFocus(zest.DefaultStyle){
     .focused   = .{ .fg = .color_4 },
     .unfocused = .{ .fg = .color_8 },
@@ -236,6 +146,305 @@ const label_styles = zest.ByFocus(zest.DefaultStyle){
     .focused   = .{ .fg = .color_4, .text = .{ .bold = true } },
     .unfocused = .{},
 };
+
+const progress_bar = zest.ProgressBar(zest.Color){
+    .filled_style = .{ .fg = .color_2 }, // green
+};
+
+// Vertical level meter on the right side of the bottom strip; fraction
+// tracks the sidebar's selected file so moving the cursor raises the fill.
+const loading_gauge = zest.Gauge(zest.Color){
+    .orientation  = .vertical,
+    .filled_style = .{ .fg = .color_4 }, // blue
+};
+
+const progress_sparkline = zest.Sparkline(zest.Color){
+    .style = .{ .fg = .color_2 }, // green
+};
+
+const title_bar = zest.TitleBar(zest.Color){};
+
+// --- Showcase widget instances ----------------------------------------------
+//
+// Multiple ProgressBar / Gauge / Sparkline instances with distinct styles
+// let the showcase pane demonstrate the visual variety the widgets cover —
+// different colours, orientations, fill levels — without re-typing the
+// construction.
+
+const showcase_bar_green  = zest.ProgressBar(zest.Color){ .filled_style = .{ .fg = .color_2 } };
+const showcase_bar_blue   = zest.ProgressBar(zest.Color){ .filled_style = .{ .fg = .color_4 } };
+const showcase_bar_purple = zest.ProgressBar(zest.Color){ .filled_style = .{ .fg = .color_5 } };
+
+const showcase_h_gauge_green  = zest.Gauge(zest.Color){ .orientation = .horizontal, .filled_style = .{ .fg = .color_2 } };
+const showcase_h_gauge_yellow = zest.Gauge(zest.Color){ .orientation = .horizontal, .filled_style = .{ .fg = .color_3 } };
+const showcase_h_gauge_red    = zest.Gauge(zest.Color){ .orientation = .horizontal, .filled_style = .{ .fg = .color_1 } };
+
+const showcase_v_gauge_blue   = zest.Gauge(zest.Color){ .orientation = .vertical, .filled_style = .{ .fg = .color_4 } };
+const showcase_v_gauge_green  = zest.Gauge(zest.Color){ .orientation = .vertical, .filled_style = .{ .fg = .color_2 } };
+const showcase_v_gauge_purple = zest.Gauge(zest.Color){ .orientation = .vertical, .filled_style = .{ .fg = .color_5 } };
+
+
+// --- Draw --------------------------------------------------------------------
+
+/// Widget gallery — each library widget rendered in several
+/// configurations so a reader can see at a glance what the framework
+/// ships. Sections short-circuit if they would exceed `inner.height`
+/// so a small terminal degrades gracefully (top sections show, lower
+/// sections clip).
+/// Widget gallery — each library widget rendered in several
+/// configurations on the terminal's default background so the
+/// colours of the widgets themselves carry the visual. Sections
+/// short-circuit on `inner.height` so a small terminal degrades
+/// gracefully — top sections show, lower ones clip.
+fn drawShowcase(
+    win: vaxis.Window,
+    focused: bool,
+    selected_file: []const u8,
+    theme: zest.DefaultTheme,
+    state: *State,
+) void {
+    const inner = win.child(.{
+        .border = .{ .where = .all, .style = theme.resolve(border_styles.pick(focused)) },
+    });
+    if (inner.height == 0) return;
+
+    // Title row — widget name in focus accent, file path in muted body text.
+    _ = inner.print(&.{
+        .{ .text = "showcase  ",
+           .style = theme.resolve(zest.DefaultStyle{
+               .fg   = if (focused) .color_4 else null,
+               .text = .{ .bold = focused },
+           }) },
+        .{ .text = selected_file,
+           .style = theme.resolve(zest.DefaultStyle{ .fg = .color_7 }) },
+    }, .{ .row_offset = 0 });
+
+    var row: u16 = 2;
+    if (row >= inner.height) return;
+
+    // --- helpers -----------------------------------------------------------
+
+    const header = struct {
+        fn write(w: vaxis.Window, t: zest.DefaultTheme, r: u16, name: []const u8, accent: zest.Color, desc: []const u8) void {
+            _ = w.print(&.{
+                .{ .text = name,
+                   .style = t.resolve(zest.DefaultStyle{ .fg = accent, .text = .{ .bold = true } }) },
+                .{ .text = "  ·  ",
+                   .style = t.resolve(zest.DefaultStyle{ .fg = .color_8 }) },
+                .{ .text = desc,
+                   .style = t.resolve(zest.DefaultStyle{ .fg = .color_8 }) },
+            }, .{ .row_offset = r });
+        }
+    };
+
+    // --- ProgressBar(C) ----------------------------------------------------
+    header.write(inner, theme, row, "ProgressBar(C)", .color_2,
+        "determinate, 1/8 sub-cell precision, overlaid label");
+    row += 1;
+    if (row >= inner.height) return;
+
+    const bars = [_]struct {
+        bar:           zest.ProgressBar(zest.Color),
+        frac:          f32,
+        bg_fill:       zest.Color,
+        label_buf_idx: usize,
+    }{
+        .{ .bar = showcase_bar_green,  .frac = 0.20, .bg_fill = .color_2, .label_buf_idx = 0 },
+        .{ .bar = showcase_bar_blue,   .frac = 0.55, .bg_fill = .color_4, .label_buf_idx = 1 },
+        .{ .bar = showcase_bar_purple, .frac = 0.85, .bg_fill = .color_5, .label_buf_idx = 2 },
+    };
+    for (bars) |b| {
+        if (row >= inner.height) return;
+        const bar_win = inner.child(.{ .x_off = 2, .y_off = row, .height = 1, .width = inner.width -| 4 });
+        const label = fmtPct(state.showcase_label_bufs[b.label_buf_idx][0..], b.frac);
+        b.bar.draw(bar_win, b.frac, theme, .{
+            .text       = label,
+            .in_filled  = .{ .fg = .background, .bg = b.bg_fill,  .text = .{ .bold = true } },
+            .in_partial = .{ .fg = .color_7,    .bg = .color_8,   .text = .{ .bold = true } },
+            .in_empty   = .{ .fg = .color_7,                       .text = .{ .bold = true } },
+        });
+        row += 1;
+    }
+    row += 1;
+
+    // --- Gauge(C) horizontal ----------------------------------------------
+    if (row >= inner.height) return;
+    header.write(inner, theme, row, "Gauge(C) horizontal", .color_3,
+        "same eighths math, any aspect ratio");
+    row += 1;
+
+    const h_gauges = [_]struct {
+        gauge:   zest.Gauge(zest.Color),
+        frac:    f32,
+        caption: []const u8,
+    }{
+        .{ .gauge = showcase_h_gauge_green,  .frac = 0.25, .caption = "  CPU   25%" },
+        .{ .gauge = showcase_h_gauge_yellow, .frac = 0.60, .caption = "  RAM   60%" },
+        .{ .gauge = showcase_h_gauge_red,    .frac = 0.92, .caption = "  DISK  92%" },
+    };
+    for (h_gauges) |h| {
+        if (row >= inner.height) return;
+        const gauge_width: u16 = @min(@as(u16, 24), (inner.width -| 4) / 2);
+        const gauge_win = inner.child(.{ .x_off = 2, .y_off = row, .height = 1, .width = gauge_width });
+        h.gauge.draw(gauge_win, h.frac, theme, .{});
+        const cap_win = inner.child(.{ .x_off = 2 + gauge_width, .y_off = row, .height = 1 });
+        zest.Text.draw(cap_win, h.caption,
+            zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
+        row += 1;
+    }
+    row += 1;
+
+    // --- Gauge(C) vertical -----------------------------------------------
+    if (row >= inner.height) return;
+    header.write(inner, theme, row, "Gauge(C) vertical", .color_4,
+        "level meters, bottom-anchored fill");
+    row += 1;
+
+    const v_gauge_block_height: u16 = 5;
+    const v_gauges = [_]struct {
+        gauge: zest.Gauge(zest.Color),
+        frac:  f32,
+        label: []const u8,
+    }{
+        .{ .gauge = showcase_v_gauge_blue,   .frac = 0.30, .label = "30%" },
+        .{ .gauge = showcase_v_gauge_green,  .frac = 0.65, .label = "65%" },
+        .{ .gauge = showcase_v_gauge_purple, .frac = 0.95, .label = "95%" },
+    };
+    var v_col: u16 = 2;
+    for (v_gauges) |vg| {
+        if (row + v_gauge_block_height > inner.height) break;
+        const v_win = inner.child(.{
+            .x_off  = v_col,
+            .y_off  = row,
+            .width  = 4,
+            .height = v_gauge_block_height,
+        });
+        vg.gauge.draw(v_win, vg.frac, theme, .{
+            .text  = vg.label,
+            .style = .{ .fg = .color_7, .text = .{ .bold = true } },
+        });
+        v_col += 6;
+    }
+    row += v_gauge_block_height + 1;
+
+    // --- Spinner(C) ------------------------------------------------------
+    //
+    // 2x4 grid of all eight built-in frame sets, all sharing
+    // state.spinner.frame_index (mod each set's length) so the grid
+    // animates in lockstep with the footer spinner.
+    if (row >= inner.height) return;
+    header.write(inner, theme, row, "Spinner(C)", .color_3,
+        "8 built-in frame sets, advance once per tick");
+    row += 1;
+
+    const sp_specs = [_]struct {
+        frames: []const []const u8,
+        fg:     zest.Color,
+        label:  []const u8,
+    }{
+        // Row 1
+        .{ .frames = zest.spinner_frames.braille,  .fg = .color_4, .label = "braille"  },
+        .{ .frames = zest.spinner_frames.line,     .fg = .color_2, .label = "line"     },
+        .{ .frames = zest.spinner_frames.pulse,    .fg = .color_5, .label = "pulse"    },
+        .{ .frames = zest.spinner_frames.dots,     .fg = .color_6, .label = "dots"     },
+        // Row 2
+        .{ .frames = zest.spinner_frames.arc,      .fg = .color_3, .label = "arc"      },
+        .{ .frames = zest.spinner_frames.circle,   .fg = .color_4, .label = "circle"   },
+        .{ .frames = zest.spinner_frames.triangle, .fg = .color_1, .label = "triangle" },
+        .{ .frames = zest.spinner_frames.block,    .fg = .color_2, .label = "block"    },
+    };
+    const sp_cols: u16 = 4;
+    const sp_cell_w: u16 = (inner.width -| 4) / sp_cols;
+    for (sp_specs, 0..) |sp, i| {
+        const grid_row = @as(u16, @intCast(i / sp_cols));
+        const grid_col = @as(u16, @intCast(i % sp_cols));
+        const sp_row = row + grid_row;
+        if (sp_row >= inner.height) break;
+        const sp_x = 2 + grid_col * sp_cell_w;
+        if (sp_x >= inner.width) continue;
+        const sp_win = inner.child(.{ .x_off = sp_x, .y_off = sp_row, .height = 1 });
+        const spinner = zest.Spinner(zest.Color){
+            .frames      = sp.frames,
+            .frame_index = (state.tick_counter / 4) % sp.frames.len,
+            .style       = .{ .fg = sp.fg, .text = .{ .bold = true } },
+        };
+        spinner.draw(sp_win, theme);
+        const lbl_win = inner.child(.{ .x_off = sp_x + 2, .y_off = sp_row, .height = 1 });
+        zest.Text.draw(lbl_win, sp.label,
+            zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
+    }
+    row += 2 + 1;
+
+    // --- Sparkline(C) -----------------------------------------------------
+    if (row >= inner.height) return;
+    header.write(inner, theme, row, "Sparkline(C)", .color_5,
+        "9-level data viz, right-edge anchored");
+    row += 1;
+
+    // Synthetic sine wave + live progress_history.
+    if (row < inner.height) {
+        var sine: [80]f32 = undefined;
+        for (&sine, 0..) |*v, i| {
+            v.* = 0.5 + 0.4 * @sin(@as(f32, @floatFromInt(i)) * 0.35);
+        }
+        const sl_win = inner.child(.{ .x_off = 2, .y_off = row, .height = 1, .width = inner.width -| 4 });
+        const sl = zest.Sparkline(zest.Color){ .style = .{ .fg = .color_4 } };
+        sl.draw(sl_win, &sine, theme);
+        row += 1;
+    }
+    if (row < inner.height) {
+        const sl_win = inner.child(.{ .x_off = 2, .y_off = row, .height = 1, .width = inner.width -| 4 });
+        const sl = zest.Sparkline(zest.Color){ .style = .{ .fg = .color_2 } };
+        sl.draw(sl_win, &state.progress_history, theme);
+        row += 1;
+    }
+    row += 1;
+
+    // --- TitleBar(C) caps variants ---------------------------------------
+    if (row >= inner.height) return;
+    header.write(inner, theme, row, "TitleBar(C)", .color_6,
+        "flat / round / slant / custom cap shapes");
+    row += 1;
+
+    if (row < inner.height) {
+        const cap_specs = [_]struct {
+            caps:  zest.TitleCaps,
+            label: []const u8,
+        }{
+            .{ .caps = .none,                          .label = "flat"   },
+            .{ .caps = .round,                         .label = "round"  },
+            .{ .caps = .slant,                         .label = "slant"  },
+            .{ .caps = .{ .custom = .{ "(", ")" } },   .label = "custom" },
+        };
+        const cell_w: u16 = inner.width / @as(u16, cap_specs.len);
+        for (cap_specs, 0..) |cap, i| {
+            const cell_x: u16 = @as(u16, @intCast(i)) * cell_w;
+            const cell_win = inner.child(.{
+                .x_off  = cell_x,
+                .y_off  = row,
+                .width  = cell_w,
+                .height = 1,
+            });
+            title_bar.draw(cell_win, theme, .{
+                .text  = " zest demo ",
+                .style = .{ .fg = .background, .bg = .color_3, .text = .{ .bold = true } },
+                .caps  = cap.caps,
+            });
+            if (row + 1 < inner.height) {
+                const cap_win = inner.child(.{
+                    .x_off  = cell_x,
+                    .y_off  = row + 1,
+                    .width  = cell_w,
+                    .height = 1,
+                });
+                zest.Text.draw(cap_win, cap.label,
+                    zest.DefaultStyle{ .fg = .color_8 }, theme,
+                    .{ .anchor = .{ .horizontal = .center, .vertical = .top } });
+            }
+        }
+        row += 2;
+    }
+}
 
 fn drawSidebarPane(panel: zest.Panel, label: []const u8, theme: zest.DefaultTheme) vaxis.Window {
     const inner = panel.win.child(.{
@@ -250,7 +459,9 @@ fn drawSidebarPane(panel: zest.Panel, label: []const u8, theme: zest.DefaultThem
 fn draw(state: *State, win: vaxis.Window) void {
     win.clear();
 
-    const theme: zest.DefaultTheme = if (state.color_scheme == .dark)
+    const theme: zest.DefaultTheme = if (state.no_color)
+        zest.DefaultTheme.noColor()
+    else if (state.color_scheme == .dark)
         zest.catppuccin_mocha
     else
         zest.catppuccin_latte;
@@ -259,35 +470,13 @@ fn draw(state: *State, win: vaxis.Window) void {
         .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
         &state.focus);
 
-    // Header — NerdFont powerline pill, centered. Half-circle caps
-    // (U+E0B6 left, U+E0B4 right) hold a yellow ribbon with the title.
-    // Cap glyphs render the yellow shape on default bg; the ribbon
-    // cells carry yellow bg with matching-bg title text. Anchor.resolve
-    // computes the centering offset against the full composite width
-    // so the pill re-centers on every resize. Requires a patched font;
-    // without one the caps render as replacement boxes.
-    const header_bg: zest.Color = .color_3;
-    const title = " zest demo ";
-    const ribbon_w: u16 = @intCast(title.len);
-    const composite_w: u16 = ribbon_w + 2; // +2 for the caps
+    title_bar.draw(p.header.win, theme, .{
+        .text  = " zest demo ",
+        .style = .{ .fg = .background, .bg = .color_3, .text = .{ .bold = true } },
+        .caps  = .round,
+    });
 
-    const off = (zest.Anchor{ .horizontal = .center, .vertical = .top })
-        .resolve(p.header.win.width, p.header.win.height, composite_w, 1);
-
-    _ = p.header.win.print(&.{
-        .{ .text  = "\u{E0B6}", //
-           .style = .{ .fg = theme.colors.get(header_bg), .bg = .default } },
-        .{ .text  = title,
-           .style = theme.resolve(zest.DefaultStyle{
-               .fg   = .background,
-               .bg   = header_bg,
-               .text = .{ .bold = true },
-           }) },
-        .{ .text  = "\u{E0B4}", //
-           .style = .{ .fg = theme.colors.get(header_bg), .bg = .default } },
-    }, .{ .wrap = .none, .col_offset = off.col, .row_offset = off.row });
-
-    const files_inner = drawSidebarPane(p.files, "1 files", theme);
+    const files_inner = drawSidebarPane(p.files,    "1 files",    theme);
     _ = drawSidebarPane(p.branches, "2 branches", theme);
     _ = drawSidebarPane(p.commits,  "3 commits",  theme);
     _ = drawSidebarPane(p.stash,    "4 stash",    theme);
@@ -296,10 +485,43 @@ fn draw(state: *State, win: vaxis.Window) void {
     state.files_list.draw(list_win, &files_items, p.files.focused, theme);
 
     drawShowcase(p.showcase.win, p.showcase.focused,
-        files_items[state.files_list.selected], theme);
+        files_items[state.files_list.selected], theme, state);
 
-    zest.Text.draw(p.log.win, "log", zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
-    zest.Text.draw(p.footer.win,
+    // Progress bar with a centred percentage label. The three label
+    // styles bridge the per-column flip as the bar sweeps across the
+    // label — bg goes default → dim → green in two steps instead of
+    // jumping in one.
+    const pct_text = fmtPct(&state.progress_text_buf, state.progress_fraction);
+    progress_bar.draw(p.progress.win, state.progress_fraction, theme, .{
+        .text       = pct_text,
+        .in_filled  = .{ .fg = .background, .bg = .color_2, .text = .{ .bold = true } },
+        .in_partial = .{ .fg = .color_7,    .bg = .color_8, .text = .{ .bold = true } },
+        .in_empty   = .{ .fg = .color_7,                    .text = .{ .bold = true } },
+    });
+
+    // Gauge fraction tracks the sidebar's selected file — moving the
+    // cursor through the list raises the fill. The widget reserves
+    // its own top row for the percentage label.
+    const loading_fraction = if (files_items.len > 0)
+        @as(f32, @floatFromInt(state.files_list.selected + 1)) /
+        @as(f32, @floatFromInt(files_items.len))
+    else
+        0.0;
+    const gauge_text = fmtPct(&state.gauge_text_buf, loading_fraction);
+    loading_gauge.draw(p.loading.win, loading_fraction, theme, .{
+        .text  = gauge_text,
+        .style = .{ .fg = .foreground, .text = .{ .bold = true } },
+    });
+
+    progress_sparkline.draw(p.log.win, &state.progress_history, theme);
+
+    // Footer: spinner glyph at col 0, keybindings hint two cols over.
+    state.spinner.draw(p.footer.win, theme);
+    const footer_keys = p.footer.win.child(.{
+        .x_off = 2,
+        .width = p.footer.win.width -| 2,
+    });
+    zest.Text.draw(footer_keys,
         "tab: cycle  j/k: navigate  ^W: switch  0-4: jump  q: quit",
         zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
 }
@@ -331,7 +553,7 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
                         '2' => .branches,
                         '3' => .commits,
                         '4' => .stash,
-                        else => unreachable, // guarded by the outer range arm
+                        else => unreachable,
                     });
                 },
                 else => return .idle,
@@ -344,6 +566,23 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
             state.files_list.widget_theme = if (cs == .dark) zest.mocha_widget else zest.latte_widget;
             return .redraw;
         },
+        .tick => {
+            // ~5 ticks/sec at the demo's 100 ms interval. Step is 0.005 so
+            // one full bar cycle takes 20 s. Spinner advances once per
+            // tick — best-effort cadence, may lurch under load.
+            state.progress_fraction = @mod(state.progress_fraction + 0.005, 1.0);
+            state.spinner.advance();
+            state.tick_counter +%= 1;
+            // Shift the history buffer left by one and append the latest
+            // sample on the right. Demo simplification — see field doc.
+            std.mem.copyForwards(
+                f32,
+                state.progress_history[0 .. state.progress_history.len - 1],
+                state.progress_history[1..],
+            );
+            state.progress_history[state.progress_history.len - 1] = state.progress_fraction;
+            return .redraw;
+        },
         else => return .idle,
     }
 }
@@ -353,11 +592,26 @@ pub fn main(init: std.process.Init) !void {
     var app = try zest.App.init(init.io, init.gpa, init.environ_map, &tty_buf);
     defer app.deinit();
 
+    // NO_COLOR convention (https://no-color.org): if the variable is
+    // present and non-empty, the user has asked for colour output to
+    // be suppressed. Read once at startup.
+    const no_color = if (init.environ_map.get("NO_COLOR")) |v| v.len > 0 else false;
+
     var state: State = .{
-        .focus        = zest.Layout.focusStateInit(layout),
-        .color_scheme = .dark,
-        .files_list   = .{ .widget_theme = zest.mocha_widget },
+        .focus             = zest.Layout.focusStateInit(layout),
+        .color_scheme      = .dark,
+        .files_list        = .{ .widget_theme = zest.mocha_widget },
+        .progress_fraction = 0.0,
+        .spinner           = .{ .style = .{ .fg = .color_4 } },
+        .progress_history  = .{0.0} ** 80,
+        .no_color          = no_color,
+        .progress_text_buf = undefined,
+        .gauge_text_buf    = undefined,
+        .showcase_label_bufs = undefined,
+        .tick_counter      = 0,
     };
 
-    try app.run(&state, activeFocus, update, draw, .{});
+    try app.run(&state, activeFocus, update, draw, .{
+        .tick_interval = .fromMilliseconds(100),
+    });
 }

@@ -161,13 +161,23 @@ const style = border.pick(panel.focused);
 
 `Anchor` places content inside its window: `left/center/right` × `top/middle/bottom`. Widgets take it through a draw-time `opts.anchor` — `Text.draw` passes the call through `anchor.resolve` to position the text without manual offset math.
 
+`Theme(C).noColor()` returns a theme where every role maps to terminal default — apps honour the [NO_COLOR convention](https://no-color.org) by checking the environment variable at startup and swapping themes. Text decorations (bold, italic, underline) still apply, per the spec.
+
+### Viz Widgets
+
+`ProgressBar(C)`, `Gauge(C)`, `Spinner(C)`, `Sparkline(C)`, and `TitleBar(C)` cover the common terminal-app indicators: determinate progress with optional label overlay, horizontal or vertical level meters with a top-row label, indeterminate loading with 8 built-in frame sets (braille, line, pulse, dots, arc, circle, triangle, block), historical data viz with sub-cell precision, and powerline-style title pills with optional NerdFont caps. All five are generic over a color enum and integrate with `Theme(C)`. `ProgressBar` and `Gauge` share a `subcell` discretisation helper that maps fractions to 1/8 block glyphs (▏▎▍▌▋▊▉ / ▁▂▃▄▅▆▇) with NaN-safe coercion at the boundary.
+
+### Time-Driven Updates
+
+`RunOpts.tick_interval` opts into a `.tick` event posted at a configurable cadence. A small worker on `std.Io.concurrent` posts ticks through the same event queue the terminal uses, so animations (progress, spinners) and polling (filesystem, network) reuse the existing update path. The worker is cancelled and joined before `run()` returns; shutdown latency is bounded by the time `std.Io.sleep` takes to observe cancellation, not by the tick interval itself.
+
 ### Enforced Update/Draw Separation
 
 `update` mutates state; `draw` renders it. The framework passes a `vaxis.Window` only to `draw`, so rendering from inside `update` is a compile error, not a convention. This makes `update` testable without a terminal.
 
 ### Single-Threaded First
 
-A straightforward single-threaded event loop: read event → update state → render. Threading is an opt-in feature planned post-1.0.
+A straightforward single-threaded event loop: read event → update state → render. The optional tick worker is the only background thread; it produces events, it doesn't run application code. `update` and `draw` always execute on the main thread, so the testable-without-a-terminal property still holds.
 
 ### Zero Heap Per Frame
 
@@ -177,7 +187,7 @@ All memory allocated during a render pass lives in a frame-scoped arena that is 
 
 ## Demo
 
-![Zest demo — lazygit-style layout with header, sidebar focus domain, main focus domain, command log, and footer](docs/img/demo.png)
+![Zest demo — widget gallery showcasing ProgressBar, Gauge, Spinner, Sparkline, and TitleBar inside a lazygit-style two-domain layout](docs/img/demo.gif)
 
 ---
 
@@ -311,8 +321,11 @@ fn draw(state: *State, win: vaxis.Window) void {
 }
 
 // Wire everything together — Tab cycling, state mutation, and rendering
-// are separate callbacks; the framework composes them:
-try app.run(&state, activeFocus, update, draw);
+// are separate callbacks; the framework composes them. The trailing
+// RunOpts carries opt-in features; pass `.{}` for none, or
+// `.{ .tick_interval = .fromMilliseconds(100) }` to receive .tick events
+// for animation and polling.
+try app.run(&state, activeFocus, update, draw, .{});
 ```
 
 See [`src/main.zig`](src/main.zig) for the complete demo.
@@ -327,8 +340,9 @@ See [`src/main.zig`](src/main.zig) for the complete demo.
 | 2 — Layout Engine | Layout types, recursive solver, Layout compositor, named panels | ✅ Complete |
 | 3 — Focus System | FocusStack, Tab cycling, domain focus isolation, non-focusable chrome | ✅ Complete |
 | 4 — Core Widgets & Styling | `Text` (with `Anchor` placement), `List(C)`, `Theme(C)` / `Style(C)` / `WidgetTheme(C)`, `ByFocus(T)` / `ByState(E, T)`, Catppuccin presets | ✅ Complete |
-| 5 — Table & Custom Widgets | Data grid, custom widget state protocol | 🔲 Planned |
-| 6 — Release | Dashboard example, benchmark harness, docs, v0.1.0 | 🔲 Planned |
+| 5 — Viz Widgets | `ProgressBar(C)`, `Gauge(C)`, `Spinner(C)`, `Sparkline(C)`, `TitleBar(C)`, sub-cell discretisation, `.tick` event + `RunOpts.tick_interval`, `Theme(C).noColor()` | ✅ Complete |
+| 6 — Table & Custom Widgets | Data grid, custom widget state protocol | 🔲 Planned |
+| 7 — Release | Dashboard example, benchmark harness, docs, v0.1.0 | 🔲 Planned |
 
 ---
 
@@ -355,11 +369,11 @@ No other runtime dependencies.
 
 ## What's Out of Scope for v0.1
 
-- Multi-threading
-- Animations or transitions
+- Multi-threaded application code (the tick worker is internal-only)
+- Complex animation systems (keyframes, easing curves) — the `.tick` event covers simple cases
 - Windows / ConPTY support (Linux and macOS only)
 - Kitty graphics protocol (planned for v0.2)
-- Accessibility
+- Accessibility beyond NO_COLOR (screen-reader support, high-contrast modes)
 
 ---
 
