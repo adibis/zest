@@ -81,8 +81,9 @@ pub fn Table(comptime C: type) type {
         const Self = @This();
 
         /// Render the table inside `win`. Currently paints the cell
-        /// background and the header row; row and selection rendering
-        /// land in subsequent commits.
+        /// background, the header row, and the data rows; selection
+        /// highlight and scroll-aware visibility land in subsequent
+        /// commits.
         pub fn draw(
             self: Self,
             win: vaxis.Window,
@@ -90,7 +91,6 @@ pub fn Table(comptime C: type) type {
             focused: bool,
             theme: Theme(C),
         ) void {
-            _ = rows;
             _ = focused;
             if (win.width == 0 or win.height == 0) return;
             if (self.columns.len > max_columns) return;
@@ -105,10 +105,30 @@ pub fn Table(comptime C: type) type {
             solveColumnWidths(C, self.columns, win.width, widths);
 
             const header_resolved = theme.resolve(self.header_style);
-            var x: u16 = 0;
+            var hx: u16 = 0;
             for (self.columns, 0..) |col, i| {
-                renderCell(win, x, 0, widths[i], col.header, col.alignment, header_resolved);
-                x += widths[i];
+                renderCell(win, hx, 0, widths[i], col.header, col.alignment, header_resolved);
+                hx += widths[i];
+            }
+
+            // Data rows start one row below the header. Rows beyond
+            // the window's height are skipped silently — the selected
+            // index is still tracked, so scroll-aware visibility
+            // (commit 5) just changes which rows land here.
+            if (win.height < 2) return;
+            const max_visible: u16 = win.height - 1;
+            const cell_resolved = theme.resolve(self.cell_style);
+            var row_idx: usize = 0;
+            while (row_idx < rows.len and row_idx < @as(usize, max_visible)) : (row_idx += 1) {
+                const row = rows[row_idx];
+                const y: u16 = @intCast(row_idx + 1);
+                var x: u16 = 0;
+                for (self.columns, 0..) |col, i| {
+                    if (i < row.len) {
+                        renderCell(win, x, y, widths[i], row[i], col.alignment, cell_resolved);
+                    }
+                    x += widths[i];
+                }
             }
         }
     };
@@ -386,6 +406,122 @@ test "Table.draw: header_style fg applies to every header cell" {
     t.draw(win, &.{}, false, theme_mod.catppuccin_mocha);
     const want_fg = theme_mod.catppuccin_mocha.colors.get(.color_4);
     try std.testing.expectEqual(want_fg, screen.readCell(0, 0).?.style.fg);
+}
+
+test "Table.draw: rows render below the header at their column positions" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 4, .cols = 12, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 12, 4);
+    const cols = [_]Column(Color){
+        .{ .header = "A", .size = .{ .fixed = 4 } },
+        .{ .header = "B", .size = .{ .fixed = 4 } },
+        .{ .header = "C", .size = .{ .fixed = 4 } },
+    };
+    const t: Table(Color) = .{ .columns = &cols };
+    const rows = [_][]const []const u8{
+        &.{ "aa", "bb", "cc" },
+        &.{ "dd", "ee", "ff" },
+    };
+    t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
+    // Header at row 0; data row 0 at y=1; data row 1 at y=2.
+    try std.testing.expectEqualStrings("a", screen.readCell(0, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("a", screen.readCell(1, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("b", screen.readCell(4, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("c", screen.readCell(8, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("d", screen.readCell(0, 2).?.char.grapheme);
+    try std.testing.expectEqualStrings("e", screen.readCell(4, 2).?.char.grapheme);
+    try std.testing.expectEqualStrings("f", screen.readCell(8, 2).?.char.grapheme);
+}
+
+test "Table.draw: per-column alignment applies to data cells, not just headers" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 2, .cols = 6, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 6, 2);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 6 }, .alignment = .right },
+    };
+    const t: Table(Color) = .{ .columns = &cols };
+    const rows = [_][]const []const u8{
+        &.{"42"},
+    };
+    t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
+    // "42" right-aligned in 6 cols → offset 4.
+    try std.testing.expectEqualStrings(" ", screen.readCell(3, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("4", screen.readCell(4, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("2", screen.readCell(5, 1).?.char.grapheme);
+}
+
+test "Table.draw: rows beyond the window's height are clipped silently" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 3);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    const t: Table(Color) = .{ .columns = &cols };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+        &.{"r2"}, // does not fit — header takes row 0, body has rows 1-2 (2 visible).
+        &.{"r3"},
+    };
+    t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
+    try std.testing.expectEqualStrings("r", screen.readCell(0, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("0", screen.readCell(1, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("r", screen.readCell(0, 2).?.char.grapheme);
+    try std.testing.expectEqualStrings("1", screen.readCell(1, 2).?.char.grapheme);
+    // Row 2 (r2) would land at y=3, outside the window.
+}
+
+test "Table.draw: row with fewer cells than columns leaves trailing columns blank" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 2, .cols = 8, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 8, 2);
+    const cols = [_]Column(Color){
+        .{ .header = "a", .size = .{ .fixed = 4 } },
+        .{ .header = "b", .size = .{ .fixed = 4 } },
+    };
+    const t: Table(Color) = .{ .columns = &cols };
+    // Row supplies only one cell; second column is left as the
+    // cell_style fill rather than crashing or wrapping the first
+    // cell across columns.
+    const rows = [_][]const []const u8{
+        &.{"xx"},
+    };
+    t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
+    try std.testing.expectEqualStrings("x", screen.readCell(0, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("x", screen.readCell(1, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings(" ", screen.readCell(4, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings(" ", screen.readCell(7, 1).?.char.grapheme);
+}
+
+test "Table.draw: cell_style fg applies to data cells" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 2, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 2);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    const t: Table(Color) = .{
+        .columns    = &cols,
+        .cell_style = .{ .fg = .color_2 },
+    };
+    const rows = [_][]const []const u8{
+        &.{"row"},
+    };
+    t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
+    const want_fg = theme_mod.catppuccin_mocha.colors.get(.color_2);
+    try std.testing.expectEqual(want_fg, screen.readCell(0, 1).?.style.fg);
 }
 
 test "Table.draw: empty draw does not panic and leaves the window blank-filled" {
