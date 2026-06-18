@@ -113,6 +113,11 @@ const State = struct {
     /// Backing buffers for the showcase gallery's per-bar labels.
     /// Same lifetime rules as the other text buffers.
     showcase_label_bufs: [3][8]u8,
+    /// Display-only Table for the showcase gallery. Carries its own
+    /// selection state so the focused-row highlight stays consistent
+    /// across frames; the demo doesn't currently route keys to it,
+    /// so the selection is a static demonstration.
+    showcase_table:      zest.Table(zest.Color),
     /// Free-running tick count used for showcase spinners. Driving them
     /// off `spinner.frame_index` would tie them to the footer braille
     /// spinner's 10-frame modulo and rotate the 4-frame sets at 2.5 Hz
@@ -183,6 +188,19 @@ const showcase_v_gauge_blue   = zest.Gauge(zest.Color){ .orientation = .vertical
 const showcase_v_gauge_green  = zest.Gauge(zest.Color){ .orientation = .vertical, .filled_style = .{ .fg = .color_2 } };
 const showcase_v_gauge_purple = zest.Gauge(zest.Color){ .orientation = .vertical, .filled_style = .{ .fg = .color_5 } };
 
+// Showcase table — three columns demonstrating mixed Size variants and
+// per-column alignment. Selection highlight uses the same widget theme
+// the sidebar list consumes, so the focused row reads consistently.
+const showcase_table_columns = [_]zest.TableColumn(zest.Color){
+    .{ .header = "Widget",   .size = .{ .fraction = 2 } },
+    .{ .header = "Frames",   .size = .{ .fixed = 8 }, .alignment = .right },
+    .{ .header = "Notes",    .size = .{ .fraction = 3 } },
+};
+const showcase_table_rows = [_][]const []const u8{
+    &.{ "ProgressBar(C)", "1",  "sub-cell precision"   },
+    &.{ "Gauge(C)",       "1",  "horizontal / vertical" },
+    &.{ "Spinner(C)",     "8",  "frame sets"           },
+};
 
 // --- Draw --------------------------------------------------------------------
 
@@ -400,6 +418,28 @@ fn drawShowcase(
     }
     row += 1;
 
+    // --- Table(C) ---------------------------------------------------------
+    if (row >= inner.height) return;
+    header.write(inner, theme, row, "Table(C)", .color_3,
+        "column-typed data grid with selection highlight");
+    row += 1;
+
+    // Static showcase table — header row plus the three sample rows.
+    // Renders the selection highlight using the demo's mocha widget
+    // theme; the focused flag is wired to the showcase pane's own
+    // focused state so toggling Ctrl-W shifts the highlight intensity
+    // alongside the panel border.
+    if (row + 4 <= inner.height) {
+        const tbl_win = inner.child(.{
+            .x_off  = 2,
+            .y_off  = row,
+            .width  = inner.width -| 4,
+            .height = 4,
+        });
+        state.showcase_table.draw(tbl_win, &showcase_table_rows, focused, theme);
+        row += 5;
+    }
+
     // --- TitleBar(C) caps variants ---------------------------------------
     if (row >= inner.height) return;
     header.write(inner, theme, row, "TitleBar(C)", .color_6,
@@ -539,6 +579,12 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
                 'j', 'k', vaxis.Key.down, vaxis.Key.up => {
                     if (state.focus.active_domain == .sidebar and state.focus.sidebar.is(.files)) {
                         state.files_list.handleKey(key, files_items.len);
+                    } else if (state.focus.active_domain == .main) {
+                        // Main domain focused — j/k drive the
+                        // showcase table's selection. The gallery's
+                        // other widgets are non-interactive, so the
+                        // table is the natural recipient here.
+                        state.showcase_table.handleKey(key, showcase_table_rows.len);
                     }
                     return .redraw;
                 },
@@ -608,6 +654,18 @@ pub fn main(init: std.process.Init) !void {
         .progress_text_buf = undefined,
         .gauge_text_buf    = undefined,
         .showcase_label_bufs = undefined,
+        .showcase_table      = .{
+            .columns        = &showcase_table_columns,
+            // Header sits on its own banded background so the column
+            // titles read as a separate strip from the data rows.
+            .header_style   = .{ .fg = .color_3, .bg = .color_8, .text = .{ .bold = true } },
+            .cell_style     = .{ .fg = .color_7 },
+            // Subtle zebra stripe — odd rows pick up the elevated
+            // surface bg so adjacent rows are easy to scan.
+            .alt_cell_style = .{ .fg = .color_7, .bg = .color_0 },
+            .widget_theme   = zest.mocha_widget,
+            .selected       = 1,
+        },
         .tick_counter      = 0,
     };
 
