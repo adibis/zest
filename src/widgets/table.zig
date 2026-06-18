@@ -67,6 +67,12 @@ pub fn Table(comptime C: type) type {
         /// Style applied to every data cell. Selection styling
         /// composes on top via widget_theme.
         cell_style:    Style(C) = .{},
+        /// Optional alternate style for odd-indexed data rows
+        /// (`row_idx % 2 == 1`). When set, draws a zebra stripe so
+        /// adjacent rows are visually distinguishable; when null,
+        /// every row uses `cell_style`. The selected row always
+        /// trumps the alt style.
+        alt_cell_style: ?Style(C) = null,
         /// Focused-vs-unfocused selection styling. Reuses the
         /// WidgetTheme(C) List already consumes — apps that share a
         /// widget theme between List and Table get consistent
@@ -124,6 +130,19 @@ pub fn Table(comptime C: type) type {
             solveColumnWidths(C, self.columns, win.width, widths);
 
             const header_resolved = theme.resolve(self.header_style);
+            // Paint the entire header row with the header style first
+            // so the header_style.bg shows uniformly across the row,
+            // not just on the cells that happen to carry text. Header
+            // text writes on top of this fill.
+            {
+                var col: u16 = 0;
+                while (col < win.width) : (col += 1) {
+                    win.writeCell(col, 0, .{
+                        .char  = .{ .grapheme = " ", .width = 1 },
+                        .style = header_resolved,
+                    });
+                }
+            }
             var hx: u16 = 0;
             for (self.columns, 0..) |col, i| {
                 renderCell(win, hx, 0, widths[i], col.header, col.alignment, header_resolved);
@@ -150,6 +169,10 @@ pub fn Table(comptime C: type) type {
             }
 
             const cell_resolved = theme.resolve(self.cell_style);
+            const alt_resolved: ?vaxis.Cell.Style = if (self.alt_cell_style) |s|
+                theme.resolve(s)
+            else
+                null;
             const selected_resolved = theme.resolve(self.widget_theme.selected.pick(focused));
             const start = self.scroll_offset;
             const end = @min(rows.len, start + @as(usize, max_visible));
@@ -158,8 +181,20 @@ pub fn Table(comptime C: type) type {
                 const row = rows[row_idx];
                 const y: u16 = @intCast(row_idx - start + 1);
                 const is_selected = row_idx == self.selected;
-                const row_style = if (is_selected) selected_resolved else cell_resolved;
-                if (is_selected) {
+                const is_alt = row_idx % 2 == 1;
+                // Selection beats zebra beats default. Zebra paints
+                // the row bg explicitly because the initial win.fill
+                // only laid down the normal cell_style; without the
+                // re-paint, the alt rows would carry the wrong bg
+                // outside the column-text spans.
+                const row_style = if (is_selected)
+                    selected_resolved
+                else if (is_alt and alt_resolved != null)
+                    alt_resolved.?
+                else
+                    cell_resolved;
+                const needs_bg_paint = is_selected or (is_alt and alt_resolved != null);
+                if (needs_bg_paint) {
                     var col: u16 = 0;
                     while (col < win.width) : (col += 1) {
                         win.writeCell(col, y, .{
@@ -452,6 +487,28 @@ test "Table.draw: header_style fg applies to every header cell" {
     t.draw(win, &.{}, false, theme_mod.catppuccin_mocha);
     const want_fg = theme_mod.catppuccin_mocha.colors.get(.color_4);
     try std.testing.expectEqual(want_fg, screen.readCell(0, 0).?.style.fg);
+}
+
+test "Table.draw: header_style bg paints the full header row, not just the text cells" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 2, .cols = 6, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 6, 2);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 6 } },
+    };
+    var t: Table(Color) = .{
+        .columns      = &cols,
+        .header_style = .{ .fg = .color_3, .bg = .color_8 },
+    };
+    t.draw(win, &.{}, false, theme_mod.catppuccin_mocha);
+    const want_bg = theme_mod.catppuccin_mocha.colors.get(.color_8);
+    // "n" text at col 0 (left-aligned). All cells across the row
+    // carry the header bg, not just the text cell.
+    try std.testing.expectEqual(want_bg, screen.readCell(0, 0).?.style.bg);
+    try std.testing.expectEqual(want_bg, screen.readCell(3, 0).?.style.bg);
+    try std.testing.expectEqual(want_bg, screen.readCell(5, 0).?.style.bg);
 }
 
 test "Table.draw: rows render below the header at their column positions" {
@@ -795,6 +852,95 @@ test "Table.draw: selection moving above the window scrolls back up" {
     try std.testing.expectEqual(@as(usize, 0), t.scroll_offset);
     try std.testing.expectEqualStrings("r", screen.readCell(0, 1).?.char.grapheme);
     try std.testing.expectEqualStrings("0", screen.readCell(1, 1).?.char.grapheme);
+}
+
+test "Table.draw: alt_cell_style stripes odd-indexed data rows" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 4, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 4);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{
+        .columns        = &cols,
+        .cell_style     = .{ .fg = .color_7 },
+        .alt_cell_style = .{ .fg = .color_2, .bg = .color_0 },
+        .selected       = std.math.maxInt(usize),
+    };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+        &.{"r2"},
+    };
+    t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
+    const normal_fg = theme_mod.catppuccin_mocha.colors.get(.color_7);
+    const alt_fg    = theme_mod.catppuccin_mocha.colors.get(.color_2);
+    const alt_bg    = theme_mod.catppuccin_mocha.colors.get(.color_0);
+    // y=1 → row_idx 0, even, normal.
+    try std.testing.expectEqual(normal_fg, screen.readCell(0, 1).?.style.fg);
+    // y=2 → row_idx 1, odd, alt.
+    try std.testing.expectEqual(alt_fg, screen.readCell(0, 2).?.style.fg);
+    try std.testing.expectEqual(alt_bg, screen.readCell(0, 2).?.style.bg);
+    // The alt bg also extends past the column text.
+    try std.testing.expectEqual(alt_bg, screen.readCell(3, 2).?.style.bg);
+    // y=3 → row_idx 2, even, normal.
+    try std.testing.expectEqual(normal_fg, screen.readCell(0, 3).?.style.fg);
+}
+
+test "Table.draw: selection beats alt style on an odd row" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 3);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{
+        .columns        = &cols,
+        .alt_cell_style = .{ .fg = .color_2 },
+        .widget_theme   = .{ .selected = .{
+            .focused   = .{ .fg = .color_4 },
+            .unfocused = .{},
+        } },
+        .selected = 1, // odd row, also the selected row
+    };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+    };
+    t.draw(win, &rows, true, theme_mod.catppuccin_mocha);
+    // Selection style wins over alt.
+    const sel_fg = theme_mod.catppuccin_mocha.colors.get(.color_4);
+    try std.testing.expectEqual(sel_fg, screen.readCell(0, 2).?.style.fg);
+}
+
+test "Table.draw: null alt_cell_style applies cell_style to every row" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 4, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 4);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{
+        .columns    = &cols,
+        .cell_style = .{ .fg = .color_2 },
+        .selected   = std.math.maxInt(usize),
+    };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+        &.{"r2"},
+    };
+    t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
+    const want_fg = theme_mod.catppuccin_mocha.colors.get(.color_2);
+    try std.testing.expectEqual(want_fg, screen.readCell(0, 1).?.style.fg);
+    try std.testing.expectEqual(want_fg, screen.readCell(0, 2).?.style.fg);
+    try std.testing.expectEqual(want_fg, screen.readCell(0, 3).?.style.fg);
 }
 
 test "Table.draw: empty draw does not panic and leaves the window blank-filled" {
