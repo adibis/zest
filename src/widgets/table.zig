@@ -19,9 +19,10 @@
 //! or their own `WidgetTheme(C)` get matching styling on Table for
 //! free.
 //!
-//! This file currently contains the column-width solver and the
-//! widget skeleton — header, row, and selection rendering land in
-//! subsequent commits.
+//! `handleKey` advances or retreats the selection on j/k or arrow
+//! keys; `draw` then keeps the selected row in view by adjusting
+//! `scroll_offset` (the split is so handleKey can run inside
+//! update() without knowing the window height).
 
 const std = @import("std");
 const vaxis = @import("vaxis");
@@ -74,19 +75,37 @@ pub fn Table(comptime C: type) type {
         /// Index of the currently selected row. `handleKey` advances
         /// or retreats it; consumers may read it to drive linked UI.
         selected:      usize = 0,
-        /// Number of rows scrolled off the top. Adjusted by
-        /// `handleKey` to keep the selected row visible.
+        /// Number of rows scrolled off the top of the visible window.
+        /// Adjusted by `draw` (which knows the window height) to keep
+        /// the selected row visible.
         scroll_offset: usize = 0,
 
         const Self = @This();
 
-        /// Render the table inside `win`. Currently paints the cell
-        /// background, header, data rows, and a focus-aware selection
-        /// highlight on the row indexed by `self.selected`. Scroll-
-        /// aware visibility (so the selected row stays visible when
-        /// `selected >= max_visible`) lands in the next commit.
+        /// Move the selection one row up or down on j/k or arrow keys.
+        /// `row_count` is the number of rows the caller is about to
+        /// pass to `draw`; the selection is clamped to that range so
+        /// it never falls off the end. Scroll bookkeeping happens in
+        /// `draw`, which knows the window height — handleKey itself
+        /// stays window-agnostic and is safe to call from update().
+        pub fn handleKey(self: *Self, key: vaxis.Key, row_count: usize) void {
+            if (row_count == 0) return;
+            const is_down = key.matches('j', .{}) or key.matches(vaxis.Key.down, .{});
+            const is_up   = key.matches('k', .{}) or key.matches(vaxis.Key.up,   .{});
+            if (is_down and self.selected + 1 < row_count) {
+                self.selected += 1;
+            } else if (is_up and self.selected > 0) {
+                self.selected -= 1;
+            }
+        }
+
+        /// Render the table inside `win`. Adjusts `scroll_offset` so
+        /// the selected row stays visible (scrolling up when the
+        /// selection moves above the visible window, down when it
+        /// moves below) and renders the visible slice with the
+        /// focus-aware selection highlight.
         pub fn draw(
-            self: Self,
+            self: *Self,
             win: vaxis.Window,
             rows: []const []const []const u8,
             focused: bool,
@@ -113,19 +132,33 @@ pub fn Table(comptime C: type) type {
 
             if (win.height < 2) return;
             const max_visible: u16 = win.height - 1;
+
+            // Adjust scroll_offset to keep the selected row in view.
+            // The selected index moves freely via handleKey; draw is
+            // where we map "the data the caller has" to "the rows
+            // that fit on screen this frame". When `selected` is
+            // beyond the data the caller passed (e.g. usize sentinel),
+            // we leave scroll_offset alone — no row is highlighted
+            // anyway and the data slice may have shrunk between
+            // frames.
+            if (self.selected < rows.len) {
+                if (self.selected < self.scroll_offset) {
+                    self.scroll_offset = self.selected;
+                } else if (self.selected >= self.scroll_offset + @as(usize, max_visible)) {
+                    self.scroll_offset = self.selected - @as(usize, max_visible) + 1;
+                }
+            }
+
             const cell_resolved = theme.resolve(self.cell_style);
             const selected_resolved = theme.resolve(self.widget_theme.selected.pick(focused));
-            var row_idx: usize = 0;
-            while (row_idx < rows.len and row_idx < @as(usize, max_visible)) : (row_idx += 1) {
+            const start = self.scroll_offset;
+            const end = @min(rows.len, start + @as(usize, max_visible));
+            var row_idx: usize = start;
+            while (row_idx < end) : (row_idx += 1) {
                 const row = rows[row_idx];
-                const y: u16 = @intCast(row_idx + 1);
+                const y: u16 = @intCast(row_idx - start + 1);
                 const is_selected = row_idx == self.selected;
                 const row_style = if (is_selected) selected_resolved else cell_resolved;
-                // Paint the selected row's full width first so the
-                // highlight extends past the last column's text into
-                // any trailing whitespace. Unselected rows fall
-                // through to the cell-style fill from the initial
-                // `win.fill` and don't need a second pass.
                 if (is_selected) {
                     var col: u16 = 0;
                     while (col < win.width) : (col += 1) {
@@ -339,7 +372,7 @@ test "Table.draw: header text appears at each column's left edge by default" {
         .{ .header = "cd", .size = .{ .fixed = 4 } },
         .{ .header = "ef", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     t.draw(win, &.{}, false, theme_mod.catppuccin_mocha);
     // Column 0 left-edge: cols 0,1 carry "ab".
     try std.testing.expectEqualStrings("a", screen.readCell(0, 0).?.char.grapheme);
@@ -361,7 +394,7 @@ test "Table.draw: header alignment .center places text in the middle of its colu
     const cols = [_]Column(Color){
         .{ .header = "x", .size = .{ .fixed = 8 }, .alignment = .center },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     t.draw(win, &.{}, false, theme_mod.catppuccin_mocha);
     // 8-wide column, 1-char text → offset (8-1)/2 = 3.
     try std.testing.expectEqualStrings(" ", screen.readCell(2, 0).?.char.grapheme);
@@ -378,7 +411,7 @@ test "Table.draw: header alignment .right places text at the column's right edge
     const cols = [_]Column(Color){
         .{ .header = "ab", .size = .{ .fixed = 6 }, .alignment = .right },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     t.draw(win, &.{}, false, theme_mod.catppuccin_mocha);
     // 6-wide column, 2-char text right-aligned → offset 4.
     try std.testing.expectEqualStrings(" ", screen.readCell(3, 0).?.char.grapheme);
@@ -395,7 +428,7 @@ test "Table.draw: header text wider than its column truncates at the right edge"
     const cols = [_]Column(Color){
         .{ .header = "longheader", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     t.draw(win, &.{}, false, theme_mod.catppuccin_mocha);
     try std.testing.expectEqualStrings("l", screen.readCell(0, 0).?.char.grapheme);
     try std.testing.expectEqualStrings("o", screen.readCell(1, 0).?.char.grapheme);
@@ -412,7 +445,7 @@ test "Table.draw: header_style fg applies to every header cell" {
     const cols = [_]Column(Color){
         .{ .header = "name", .size = .{ .fixed = 6 } },
     };
-    const t: Table(Color) = .{
+    var t: Table(Color) = .{
         .columns      = &cols,
         .header_style = .{ .fg = .color_4 },
     };
@@ -432,7 +465,7 @@ test "Table.draw: rows render below the header at their column positions" {
         .{ .header = "B", .size = .{ .fixed = 4 } },
         .{ .header = "C", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     const rows = [_][]const []const u8{
         &.{ "aa", "bb", "cc" },
         &.{ "dd", "ee", "ff" },
@@ -457,7 +490,7 @@ test "Table.draw: per-column alignment applies to data cells, not just headers" 
     const cols = [_]Column(Color){
         .{ .header = "n", .size = .{ .fixed = 6 }, .alignment = .right },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     const rows = [_][]const []const u8{
         &.{"42"},
     };
@@ -477,7 +510,7 @@ test "Table.draw: rows beyond the window's height are clipped silently" {
     const cols = [_]Column(Color){
         .{ .header = "n", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     const rows = [_][]const []const u8{
         &.{"r0"},
         &.{"r1"},
@@ -502,7 +535,7 @@ test "Table.draw: row with fewer cells than columns leaves trailing columns blan
         .{ .header = "a", .size = .{ .fixed = 4 } },
         .{ .header = "b", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     // Row supplies only one cell; second column is left as the
     // cell_style fill rather than crashing or wrapping the first
     // cell across columns.
@@ -527,7 +560,7 @@ test "Table.draw: cell_style fg applies to non-selected data cells" {
     };
     // `selected` past the row count means no visible row carries the
     // selection style; row 0 falls through to the cell style.
-    const t: Table(Color) = .{
+    var t: Table(Color) = .{
         .columns    = &cols,
         .cell_style = .{ .fg = .color_2 },
         .selected   = std.math.maxInt(usize),
@@ -549,7 +582,7 @@ test "Table.draw: focused selected row uses widget_theme.selected.focused" {
     const cols = [_]Column(Color){
         .{ .header = "n", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{
+    var t: Table(Color) = .{
         .columns      = &cols,
         .widget_theme = .{
             .selected = .{
@@ -582,7 +615,7 @@ test "Table.draw: unfocused selected row uses widget_theme.selected.unfocused" {
     const cols = [_]Column(Color){
         .{ .header = "n", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{
+    var t: Table(Color) = .{
         .columns      = &cols,
         .widget_theme = .{
             .selected = .{
@@ -609,7 +642,7 @@ test "Table.draw: non-selected rows keep cell_style fg" {
     const cols = [_]Column(Color){
         .{ .header = "n", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{
+    var t: Table(Color) = .{
         .columns      = &cols,
         .cell_style   = .{ .fg = .color_2 },
         .widget_theme = .{ .selected = .{
@@ -640,7 +673,7 @@ test "Table.draw: selected index past the last visible row does not crash" {
     const cols = [_]Column(Color){
         .{ .header = "n", .size = .{ .fixed = 4 } },
     };
-    const t: Table(Color) = .{
+    var t: Table(Color) = .{
         .columns  = &cols,
         .selected = 5, // far beyond the 2 visible rows
     };
@@ -653,6 +686,117 @@ test "Table.draw: selected index past the last visible row does not crash" {
     try std.testing.expectEqualStrings("r", screen.readCell(0, 1).?.char.grapheme);
 }
 
+test "Table.handleKey: j advances the selection, k retreats it" {
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{ .columns = &cols };
+    const j: vaxis.Key = .{ .codepoint = 'j' };
+    const k: vaxis.Key = .{ .codepoint = 'k' };
+    t.handleKey(j, 5);
+    try std.testing.expectEqual(@as(usize, 1), t.selected);
+    t.handleKey(j, 5);
+    t.handleKey(j, 5);
+    try std.testing.expectEqual(@as(usize, 3), t.selected);
+    t.handleKey(k, 5);
+    try std.testing.expectEqual(@as(usize, 2), t.selected);
+}
+
+test "Table.handleKey: arrow down and arrow up move the selection" {
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{ .columns = &cols };
+    const down: vaxis.Key = .{ .codepoint = vaxis.Key.down };
+    const up:   vaxis.Key = .{ .codepoint = vaxis.Key.up };
+    t.handleKey(down, 3);
+    try std.testing.expectEqual(@as(usize, 1), t.selected);
+    t.handleKey(up, 3);
+    try std.testing.expectEqual(@as(usize, 0), t.selected);
+}
+
+test "Table.handleKey: selection clamps at 0 and at row_count - 1" {
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{ .columns = &cols };
+    const j: vaxis.Key = .{ .codepoint = 'j' };
+    const k: vaxis.Key = .{ .codepoint = 'k' };
+    // k at 0 stays at 0.
+    t.handleKey(k, 3);
+    try std.testing.expectEqual(@as(usize, 0), t.selected);
+    // j past the last row stays at the last row.
+    t.handleKey(j, 3);
+    t.handleKey(j, 3);
+    t.handleKey(j, 3);
+    t.handleKey(j, 3);
+    try std.testing.expectEqual(@as(usize, 2), t.selected);
+}
+
+test "Table.handleKey: row_count == 0 is a safe no-op" {
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{ .columns = &cols };
+    const j: vaxis.Key = .{ .codepoint = 'j' };
+    t.handleKey(j, 0);
+    try std.testing.expectEqual(@as(usize, 0), t.selected);
+}
+
+test "Table.draw: selection moving below the window scrolls the data" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 3);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{ .columns = &cols, .selected = 3 };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+        &.{"r2"},
+        &.{"r3"},
+        &.{"r4"},
+    };
+    // height = 3 → max_visible = 2. selected = 3 forces scroll_offset = 2.
+    // y=1 shows r2, y=2 shows r3 (selected).
+    t.draw(win, &rows, true, theme_mod.catppuccin_mocha);
+    try std.testing.expectEqual(@as(usize, 2), t.scroll_offset);
+    try std.testing.expectEqualStrings("r", screen.readCell(0, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("2", screen.readCell(1, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("r", screen.readCell(0, 2).?.char.grapheme);
+    try std.testing.expectEqualStrings("3", screen.readCell(1, 2).?.char.grapheme);
+}
+
+test "Table.draw: selection moving above the window scrolls back up" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 3);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    var t: Table(Color) = .{
+        .columns      = &cols,
+        .selected     = 0,
+        .scroll_offset = 3, // stale offset from a previous frame
+    };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+        &.{"r2"},
+        &.{"r3"},
+        &.{"r4"},
+    };
+    t.draw(win, &rows, true, theme_mod.catppuccin_mocha);
+    try std.testing.expectEqual(@as(usize, 0), t.scroll_offset);
+    try std.testing.expectEqualStrings("r", screen.readCell(0, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("0", screen.readCell(1, 1).?.char.grapheme);
+}
+
 test "Table.draw: empty draw does not panic and leaves the window blank-filled" {
     var screen = try vaxis.Screen.init(std.testing.allocator, .{
         .rows = 3, .cols = 10, .x_pixel = 0, .y_pixel = 0,
@@ -663,7 +807,7 @@ test "Table.draw: empty draw does not panic and leaves the window blank-filled" 
         .{ .header = "", .size = .{ .fixed = 4 } },
         .{ .header = "", .size = .{ .fraction = 1 } },
     };
-    const t: Table(Color) = .{ .columns = &cols };
+    var t: Table(Color) = .{ .columns = &cols };
     t.draw(win, &.{}, false, theme_mod.catppuccin_mocha);
     // No headers and no rows — entire window is the cell_style fill.
     try std.testing.expectEqualStrings(" ", screen.readCell(0, 0).?.char.grapheme);
