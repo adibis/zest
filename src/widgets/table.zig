@@ -81,9 +81,10 @@ pub fn Table(comptime C: type) type {
         const Self = @This();
 
         /// Render the table inside `win`. Currently paints the cell
-        /// background, the header row, and the data rows; selection
-        /// highlight and scroll-aware visibility land in subsequent
-        /// commits.
+        /// background, header, data rows, and a focus-aware selection
+        /// highlight on the row indexed by `self.selected`. Scroll-
+        /// aware visibility (so the selected row stays visible when
+        /// `selected >= max_visible`) lands in the next commit.
         pub fn draw(
             self: Self,
             win: vaxis.Window,
@@ -91,7 +92,6 @@ pub fn Table(comptime C: type) type {
             focused: bool,
             theme: Theme(C),
         ) void {
-            _ = focused;
             if (win.width == 0 or win.height == 0) return;
             if (self.columns.len > max_columns) return;
 
@@ -111,21 +111,34 @@ pub fn Table(comptime C: type) type {
                 hx += widths[i];
             }
 
-            // Data rows start one row below the header. Rows beyond
-            // the window's height are skipped silently — the selected
-            // index is still tracked, so scroll-aware visibility
-            // (commit 5) just changes which rows land here.
             if (win.height < 2) return;
             const max_visible: u16 = win.height - 1;
             const cell_resolved = theme.resolve(self.cell_style);
+            const selected_resolved = theme.resolve(self.widget_theme.selected.pick(focused));
             var row_idx: usize = 0;
             while (row_idx < rows.len and row_idx < @as(usize, max_visible)) : (row_idx += 1) {
                 const row = rows[row_idx];
                 const y: u16 = @intCast(row_idx + 1);
+                const is_selected = row_idx == self.selected;
+                const row_style = if (is_selected) selected_resolved else cell_resolved;
+                // Paint the selected row's full width first so the
+                // highlight extends past the last column's text into
+                // any trailing whitespace. Unselected rows fall
+                // through to the cell-style fill from the initial
+                // `win.fill` and don't need a second pass.
+                if (is_selected) {
+                    var col: u16 = 0;
+                    while (col < win.width) : (col += 1) {
+                        win.writeCell(col, y, .{
+                            .char  = .{ .grapheme = " ", .width = 1 },
+                            .style = row_style,
+                        });
+                    }
+                }
                 var x: u16 = 0;
                 for (self.columns, 0..) |col, i| {
                     if (i < row.len) {
-                        renderCell(win, x, y, widths[i], row[i], col.alignment, cell_resolved);
+                        renderCell(win, x, y, widths[i], row[i], col.alignment, row_style);
                     }
                     x += widths[i];
                 }
@@ -503,7 +516,7 @@ test "Table.draw: row with fewer cells than columns leaves trailing columns blan
     try std.testing.expectEqualStrings(" ", screen.readCell(7, 1).?.char.grapheme);
 }
 
-test "Table.draw: cell_style fg applies to data cells" {
+test "Table.draw: cell_style fg applies to non-selected data cells" {
     var screen = try vaxis.Screen.init(std.testing.allocator, .{
         .rows = 2, .cols = 4, .x_pixel = 0, .y_pixel = 0,
     });
@@ -512,9 +525,12 @@ test "Table.draw: cell_style fg applies to data cells" {
     const cols = [_]Column(Color){
         .{ .header = "n", .size = .{ .fixed = 4 } },
     };
+    // `selected` past the row count means no visible row carries the
+    // selection style; row 0 falls through to the cell style.
     const t: Table(Color) = .{
         .columns    = &cols,
         .cell_style = .{ .fg = .color_2 },
+        .selected   = std.math.maxInt(usize),
     };
     const rows = [_][]const []const u8{
         &.{"row"},
@@ -522,6 +538,119 @@ test "Table.draw: cell_style fg applies to data cells" {
     t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
     const want_fg = theme_mod.catppuccin_mocha.colors.get(.color_2);
     try std.testing.expectEqual(want_fg, screen.readCell(0, 1).?.style.fg);
+}
+
+test "Table.draw: focused selected row uses widget_theme.selected.focused" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 3);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    const t: Table(Color) = .{
+        .columns      = &cols,
+        .widget_theme = .{
+            .selected = .{
+                .focused   = .{ .fg = .color_2, .bg = .color_4 },
+                .unfocused = .{ .fg = .color_8 },
+            },
+        },
+        .selected = 1,
+    };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+    };
+    t.draw(win, &rows, true, theme_mod.catppuccin_mocha);
+    const want_fg = theme_mod.catppuccin_mocha.colors.get(.color_2);
+    const want_bg = theme_mod.catppuccin_mocha.colors.get(.color_4);
+    // r1 is the selected row at y=2.
+    try std.testing.expectEqual(want_fg, screen.readCell(0, 2).?.style.fg);
+    try std.testing.expectEqual(want_bg, screen.readCell(0, 2).?.style.bg);
+    // The highlight extends past the text into the trailing cells.
+    try std.testing.expectEqual(want_bg, screen.readCell(3, 2).?.style.bg);
+}
+
+test "Table.draw: unfocused selected row uses widget_theme.selected.unfocused" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 3);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    const t: Table(Color) = .{
+        .columns      = &cols,
+        .widget_theme = .{
+            .selected = .{
+                .focused   = .{ .fg = .color_2 },
+                .unfocused = .{ .fg = .color_8 },
+            },
+        },
+        .selected = 0,
+    };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+    };
+    t.draw(win, &rows, false, theme_mod.catppuccin_mocha);
+    const want_fg = theme_mod.catppuccin_mocha.colors.get(.color_8);
+    try std.testing.expectEqual(want_fg, screen.readCell(0, 1).?.style.fg);
+}
+
+test "Table.draw: non-selected rows keep cell_style fg" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 4, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 4);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    const t: Table(Color) = .{
+        .columns      = &cols,
+        .cell_style   = .{ .fg = .color_2 },
+        .widget_theme = .{ .selected = .{
+            .focused   = .{ .fg = .color_4 },
+            .unfocused = .{},
+        } },
+        .selected = 0,
+    };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+        &.{"r2"},
+    };
+    t.draw(win, &rows, true, theme_mod.catppuccin_mocha);
+    const sel_fg = theme_mod.catppuccin_mocha.colors.get(.color_4);
+    const cell_fg = theme_mod.catppuccin_mocha.colors.get(.color_2);
+    try std.testing.expectEqual(sel_fg,  screen.readCell(0, 1).?.style.fg);
+    try std.testing.expectEqual(cell_fg, screen.readCell(0, 2).?.style.fg);
+    try std.testing.expectEqual(cell_fg, screen.readCell(0, 3).?.style.fg);
+}
+
+test "Table.draw: selected index past the last visible row does not crash" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 3, .cols = 4, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 4, 3);
+    const cols = [_]Column(Color){
+        .{ .header = "n", .size = .{ .fixed = 4 } },
+    };
+    const t: Table(Color) = .{
+        .columns  = &cols,
+        .selected = 5, // far beyond the 2 visible rows
+    };
+    const rows = [_][]const []const u8{
+        &.{"r0"},
+        &.{"r1"},
+    };
+    // No selected row is visible — visible rows render with cell_style.
+    t.draw(win, &rows, true, theme_mod.catppuccin_mocha);
+    try std.testing.expectEqualStrings("r", screen.readCell(0, 1).?.char.grapheme);
 }
 
 test "Table.draw: empty draw does not panic and leaves the window blank-filled" {
