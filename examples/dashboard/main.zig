@@ -74,6 +74,7 @@ const State = struct {
     // the demo's progress_text_buf.
     cpu_label_buf: [16]u8,
     ram_label_buf: [16]u8,
+    net_label_buf: [32]u8,
 };
 
 fn activeFocus(state: *State) *zest.FocusStack {
@@ -96,9 +97,45 @@ const ram_gauge = zest.Gauge(zest.Color){
     .filled_style = .{ .fg = .color_4 }, // blue
 };
 
+// Network throughput sparkline — values come from `net_history` on
+// State, refreshed once per tick from the mock generator. The
+// brighter accent (magenta) sets it apart from the green/blue
+// gauges above.
+const net_sparkline = zest.Sparkline(zest.Color){
+    .style = .{ .fg = .color_5 },
+};
+
+// Mock peak throughput (KB/s) the 0..1 fractions in net_history map
+// onto. Adjust when swapping in real measurements.
+const net_peak_kbps: f32 = 200.0;
+
 fn fmtPctLabel(buf: []u8, prefix: []const u8, fraction: f32) []const u8 {
     const pct: u32 = @intFromFloat(std.math.clamp(fraction, 0.0, 1.0) * 100.0);
     return std.fmt.bufPrint(buf, "{s}  {d}%", .{ prefix, pct }) catch "";
+}
+
+fn drawNetwork(state: *State, win: vaxis.Window, theme: zest.DefaultTheme) void {
+    if (win.height == 0 or win.width == 0) return;
+
+    const latest = state.net_history[state.net_history.len - 1];
+    const kbps: u32 = @intFromFloat(latest * net_peak_kbps);
+    const label = std.fmt.bufPrint(
+        &state.net_label_buf,
+        "Network  ·  {d} KB/s",
+        .{kbps},
+    ) catch "";
+
+    zest.Text.draw(win, label,
+        zest.DefaultStyle{ .fg = .color_7, .text = .{ .bold = true } }, theme, .{});
+
+    // Sparkline on the bottom inner row so the label and the strip
+    // are visually separated and there's no overlap risk on small
+    // terminals.
+    if (win.height >= 3) {
+        const sl_y: u16 = win.height - 1;
+        const sl_win = win.child(.{ .y_off = sl_y, .height = 1 });
+        net_sparkline.draw(sl_win, &state.net_history, theme);
+    }
 }
 
 fn drawOverview(state: *State, win: vaxis.Window, theme: zest.DefaultTheme) void {
@@ -158,9 +195,9 @@ fn draw(state: *State, win: vaxis.Window) void {
         zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
 
     drawOverview(state, p.overview.win, theme);
+    drawNetwork(state, p.network.win, theme);
 
-    // Network and processes content land in commits 5-6.
-    _ = p.network;
+    // Process table content lands in commit 6.
     _ = p.processes;
 }
 
@@ -217,6 +254,7 @@ pub fn main(init: std.process.Init) !void {
         .process_table = .{ .columns = &.{} },
         .cpu_label_buf = undefined,
         .ram_label_buf = undefined,
+        .net_label_buf = undefined,
     };
 
     try app.run(&state, activeFocus, update, draw, .{
