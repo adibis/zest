@@ -77,4 +77,27 @@ pub fn build(b: *std.Build) void {
         if (b.args) |args| ex_run.addArgs(args);
         b.step(ex.name, ex.desc).dependOn(&ex_run.step);
     }
+
+    // --- Benchmarks ---------------------------------------------------------
+    //
+    // `zig build bench` runs the micro-benchmark harness. Built in
+    // ReleaseFast so the measurements aren't dominated by the debug
+    // safety checks; release-mode is the mode the performance targets
+    // in the README quote against.
+    const bench_exe = b.addExecutable(.{
+        .name = "bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("bench/main.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "zest", .module = mod },
+                .{ .name = "vaxis", .module = vaxis_mod },
+            },
+        }),
+    });
+    const bench_run = b.addRunArtifact(bench_exe);
+    if (b.args) |args| bench_run.addArgs(args);
+    b.step("bench", "Run the micro-benchmark harness in ReleaseFast")
+        .dependOn(&bench_run.step);
 }
