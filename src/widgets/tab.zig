@@ -42,6 +42,33 @@ pub fn Tab(comptime C: type) type {
 
         const Self = @This();
 
+        /// Move the active tab in response to a keypress. Recognised
+        /// keys are number keys `1`-`9` (jump to that tab index),
+        /// `l` / right arrow (next, wraps), and `h` / left arrow
+        /// (previous, wraps). All other keys are ignored — the
+        /// caller routes them elsewhere.
+        ///
+        /// Calls outside the registered tab range are silently
+        /// clamped; `9` on a two-tab strip leaves the selection
+        /// alone instead of moving it to an out-of-range index.
+        pub fn handleKey(self: *Self, key: vaxis.Key) void {
+            if (self.labels.len == 0) return;
+
+            if (key.codepoint >= '1' and key.codepoint <= '9') {
+                const idx: usize = @intCast(key.codepoint - '1');
+                if (idx < self.labels.len) self.active = idx;
+                return;
+            }
+
+            const is_next = key.matches('l', .{}) or key.matches(vaxis.Key.right, .{});
+            const is_prev = key.matches('h', .{}) or key.matches(vaxis.Key.left, .{});
+            if (is_next) {
+                self.active = (self.active + 1) % self.labels.len;
+            } else if (is_prev) {
+                self.active = if (self.active == 0) self.labels.len - 1 else self.active - 1;
+            }
+        }
+
         /// Render the tab strip on row 0 of `win`. Labels render one
         /// column per byte (ASCII); debug builds assert each byte is
         /// < 0x80, matching the lifetime/encoding contract the other
@@ -272,6 +299,73 @@ test "Tab.draw: underline carries active_style fg" {
     const want_fg = catppuccin_mocha.colors.get(.color_4);
     try std.testing.expectEqual(want_fg, screen.readCell(0, 1).?.style.fg);
     try std.testing.expectEqual(want_fg, screen.readCell(2, 1).?.style.fg);
+}
+
+test "Tab.handleKey: number key jumps to that tab index" {
+    const labels = [_][]const u8{ "A", "B", "C" };
+    var t: Tab(Color) = .{ .labels = &labels };
+    const k3: vaxis.Key = .{ .codepoint = '3' };
+    t.handleKey(k3);
+    try std.testing.expectEqual(@as(usize, 2), t.active);
+    const k1: vaxis.Key = .{ .codepoint = '1' };
+    t.handleKey(k1);
+    try std.testing.expectEqual(@as(usize, 0), t.active);
+}
+
+test "Tab.handleKey: number key past the last tab is a no-op" {
+    const labels = [_][]const u8{ "A", "B" };
+    var t: Tab(Color) = .{ .labels = &labels, .active = 1 };
+    const k9: vaxis.Key = .{ .codepoint = '9' };
+    t.handleKey(k9);
+    try std.testing.expectEqual(@as(usize, 1), t.active);
+}
+
+test "Tab.handleKey: l / right arrow advance the active tab" {
+    const labels = [_][]const u8{ "A", "B", "C" };
+    var t: Tab(Color) = .{ .labels = &labels };
+    const l: vaxis.Key = .{ .codepoint = 'l' };
+    t.handleKey(l);
+    try std.testing.expectEqual(@as(usize, 1), t.active);
+    const right: vaxis.Key = .{ .codepoint = vaxis.Key.right };
+    t.handleKey(right);
+    try std.testing.expectEqual(@as(usize, 2), t.active);
+}
+
+test "Tab.handleKey: h / left arrow retreat the active tab" {
+    const labels = [_][]const u8{ "A", "B", "C" };
+    var t: Tab(Color) = .{ .labels = &labels, .active = 2 };
+    const h: vaxis.Key = .{ .codepoint = 'h' };
+    t.handleKey(h);
+    try std.testing.expectEqual(@as(usize, 1), t.active);
+    const left: vaxis.Key = .{ .codepoint = vaxis.Key.left };
+    t.handleKey(left);
+    try std.testing.expectEqual(@as(usize, 0), t.active);
+}
+
+test "Tab.handleKey: prev / next wrap at the edges" {
+    const labels = [_][]const u8{ "A", "B" };
+    var t: Tab(Color) = .{ .labels = &labels };
+    const h: vaxis.Key = .{ .codepoint = 'h' };
+    t.handleKey(h);
+    try std.testing.expectEqual(@as(usize, 1), t.active);
+    const l: vaxis.Key = .{ .codepoint = 'l' };
+    t.handleKey(l);
+    try std.testing.expectEqual(@as(usize, 0), t.active);
+}
+
+test "Tab.handleKey: unrecognised key is a no-op" {
+    const labels = [_][]const u8{ "A", "B" };
+    var t: Tab(Color) = .{ .labels = &labels, .active = 0 };
+    const j: vaxis.Key = .{ .codepoint = 'j' };
+    t.handleKey(j);
+    try std.testing.expectEqual(@as(usize, 0), t.active);
+}
+
+test "Tab.handleKey: empty labels are a safe no-op" {
+    var t: Tab(Color) = .{ .labels = &.{} };
+    const k1: vaxis.Key = .{ .codepoint = '1' };
+    t.handleKey(k1);
+    try std.testing.expectEqual(@as(usize, 0), t.active);
 }
 
 test "Tab(C): works with a user-defined color enum" {
