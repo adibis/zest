@@ -136,7 +136,15 @@ fn fmtPctLabel(buf: []u8, prefix: []const u8, fraction: f32) []const u8 {
 fn drawNetwork(state: *State, win: vaxis.Window, theme: zest.DefaultTheme) void {
     if (win.height == 0 or win.width == 0) return;
 
-    const latest = state.net_history[state.net_history.len - 1];
+    // Clamp before multiplying — the mock generator emits values that
+    // can briefly dip below zero, which crashes @intFromFloat to u32.
+    // Sparkline.draw already clamps for its own rendering; the KB/s
+    // label needs to do the same defensively.
+    const latest = std.math.clamp(
+        state.net_history[state.net_history.len - 1],
+        0.0,
+        1.0,
+    );
     const kbps: u32 = @intFromFloat(latest * net_peak_kbps);
     const label = std.fmt.bufPrint(
         &state.net_label_buf,
