@@ -82,6 +82,9 @@ test {
     _ = @import("widgets/sparkline.zig");
     _ = @import("widgets/title_bar.zig");
     _ = @import("widgets/table.zig");
+    // Tutorial widget — kept in the test block so docs and code
+    // stay in sync; intentionally not exported.
+    _ = @import("widgets/example_toggle.zig");
     _ = @import("core/focus.zig");
     _ = @import("core/theme.zig");
 }
