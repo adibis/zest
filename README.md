@@ -171,6 +171,10 @@ const style = border.pick(panel.focused);
 
 `RunOpts.tick_interval` opts into a `.tick` event posted at a configurable cadence. A small worker on `std.Io.concurrent` posts ticks through the same event queue the terminal uses, so animations (progress, spinners) and polling (filesystem, network) reuse the existing update path. The worker is cancelled and joined before `run()` returns; shutdown latency is bounded by the time `std.Io.sleep` takes to observe cancellation, not by the tick interval itself.
 
+### Custom Widgets
+
+When the library doesn't ship the widget you need, write your own using the same conventions every built-in widget already follows: generic over a Color enum, visual identity on the struct, persistent state on the struct, `draw(self, win, [data,] theme, [opts])`, optional `handleKey(self, key, ...)`. See [`docs/custom-widgets.md`](docs/custom-widgets.md) for the protocol and `src/widgets/example_toggle.zig` for a minimal worked example.
+
 ### Enforced Update/Draw Separation
 
 `update` mutates state; `draw` renders it. The framework passes a `vaxis.Window` only to `draw`, so rendering from inside `update` is a compile error, not a convention. This makes `update` testable without a terminal.
@@ -341,7 +345,7 @@ See [`src/main.zig`](src/main.zig) for the complete demo.
 | 3 — Focus System | FocusStack, Tab cycling, domain focus isolation, non-focusable chrome | ✅ Complete |
 | 4 — Core Widgets & Styling | `Text` (with `Anchor` placement), `List(C)`, `Theme(C)` / `Style(C)` / `WidgetTheme(C)`, `ByFocus(T)` / `ByState(E, T)`, Catppuccin presets | ✅ Complete |
 | 5 — Viz Widgets | `ProgressBar(C)`, `Gauge(C)`, `Spinner(C)`, `Sparkline(C)`, `TitleBar(C)`, sub-cell discretisation, `.tick` event + `RunOpts.tick_interval`, `Theme(C).noColor()` | ✅ Complete |
-| 6 — Table & Custom Widgets | Data grid, custom widget state protocol | 🔲 Planned |
+| 6 — Table & Custom Widgets | `Table(C)` with column sizing, alignment, scroll, zebra stripes; custom widget protocol documented in `docs/custom-widgets.md` with a worked example | ✅ Complete |
 | 7 — Release | Dashboard example, benchmark harness, docs, v0.1.0 | 🔲 Planned |
 
 ---
