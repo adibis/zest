@@ -81,8 +81,27 @@ fn activeFocus(state: *State) *zest.FocusStack {
     return zest.Layout.focusStateActiveFocus(layout, &state.focus);
 }
 
-// Populated for real in commit 6.
-const process_rows = [_][]const []const u8{};
+// Mock process snapshot — name + PID are realistic; CPU/MEM values
+// are picked so the rows sort roughly by CPU descending and the
+// header row's accent reads in a dense table. Swap these for a
+// real /proc reader (Linux) or libproc poll (macOS) when adapting.
+const process_rows = [_][]const []const u8{
+    &.{ "  1234", "zest",         " 18.4%", "  1.2%" },
+    &.{ "  5678", "ghostty",      " 12.1%", "  2.4%" },
+    &.{ "    91", "kernel_task",  "  8.7%", "  0.1%" },
+    &.{ "  2901", "WindowServer", "  6.5%", "  3.2%" },
+    &.{ "  4023", "Slack",        "  3.8%", "  4.8%" },
+    &.{ "  7720", "firefox",      "  2.9%", " 12.4%" },
+    &.{ "    88", "launchd",      "  0.4%", "  0.0%" },
+    &.{ "    93", "syslogd",      "  0.2%", "  0.0%" },
+};
+
+const process_columns = [_]zest.TableColumn(zest.Color){
+    .{ .header = "  PID", .size = .{ .fixed = 7 },    .alignment = .right },
+    .{ .header = "NAME",  .size = .{ .fraction = 1 } },
+    .{ .header = "CPU",   .size = .{ .fixed = 8 },    .alignment = .right },
+    .{ .header = "MEM",   .size = .{ .fixed = 8 },    .alignment = .right },
+};
 
 // --- File-scope widget instances --------------------------------------------
 
@@ -196,9 +215,7 @@ fn draw(state: *State, win: vaxis.Window) void {
 
     drawOverview(state, p.overview.win, theme);
     drawNetwork(state, p.network.win, theme);
-
-    // Process table content lands in commit 6.
-    _ = p.processes;
+    state.process_table.draw(p.processes.win, &process_rows, p.processes.focused, theme);
 }
 
 fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.UpdateResult {
@@ -251,7 +268,13 @@ pub fn main(init: std.process.Init) !void {
         .cpu_fraction  = 0.0,
         .ram_fraction  = 0.0,
         .net_history   = .{0.0} ** 80,
-        .process_table = .{ .columns = &.{} },
+        .process_table = .{
+            .columns        = &process_columns,
+            .header_style   = .{ .fg = .color_3, .bg = .color_8, .text = .{ .bold = true } },
+            .cell_style     = .{ .fg = .color_7 },
+            .alt_cell_style = .{ .fg = .color_7, .bg = .color_0 },
+            .widget_theme   = zest.mocha_widget,
+        },
         .cpu_label_buf = undefined,
         .ram_label_buf = undefined,
         .net_label_buf = undefined,
