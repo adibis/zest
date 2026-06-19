@@ -69,6 +69,11 @@ const State = struct {
     ram_fraction: f32,
     net_history: [80]f32,
     process_table: zest.Table(zest.Color),
+    // Per-frame scratch buffers for the overview gauge labels.
+    // Written from draw(); same single-threaded-loop dependency as
+    // the demo's progress_text_buf.
+    cpu_label_buf: [16]u8,
+    ram_label_buf: [16]u8,
 };
 
 fn activeFocus(state: *State) *zest.FocusStack {
@@ -77,6 +82,50 @@ fn activeFocus(state: *State) *zest.FocusStack {
 
 // Populated for real in commit 6.
 const process_rows = [_][]const []const u8{};
+
+// --- File-scope widget instances --------------------------------------------
+
+// CPU and RAM share the same horizontal-gauge shape but pick distinct
+// colours so a glance at the overview pane reads which meter is which.
+const cpu_gauge = zest.Gauge(zest.Color){
+    .orientation  = .horizontal,
+    .filled_style = .{ .fg = .color_2 }, // green
+};
+const ram_gauge = zest.Gauge(zest.Color){
+    .orientation  = .horizontal,
+    .filled_style = .{ .fg = .color_4 }, // blue
+};
+
+fn fmtPctLabel(buf: []u8, prefix: []const u8, fraction: f32) []const u8 {
+    const pct: u32 = @intFromFloat(std.math.clamp(fraction, 0.0, 1.0) * 100.0);
+    return std.fmt.bufPrint(buf, "{s}  {d}%", .{ prefix, pct }) catch "";
+}
+
+fn drawOverview(state: *State, win: vaxis.Window, theme: zest.DefaultTheme) void {
+    if (win.height == 0) return;
+    // Two side-by-side horizontal gauges. Each gauge uses its built-in
+    // top-row label option, so the label "CPU  47%" sits on the top
+    // row of its own half-window and the fill bar fills the rest.
+    const half_w: u16 = win.width / 2;
+    if (half_w < 6) return; // not enough width for a meaningful split
+
+    const cpu_label = fmtPctLabel(&state.cpu_label_buf, "CPU", state.cpu_fraction);
+    const ram_label = fmtPctLabel(&state.ram_label_buf, "RAM", state.ram_fraction);
+
+    const label_style = zest.DefaultStyle{ .fg = .color_7, .text = .{ .bold = true } };
+
+    const cpu_win = win.child(.{ .width = half_w });
+    cpu_gauge.draw(cpu_win, state.cpu_fraction, theme, .{
+        .text  = cpu_label,
+        .style = label_style,
+    });
+
+    const ram_win = win.child(.{ .x_off = half_w, .width = win.width - half_w });
+    ram_gauge.draw(ram_win, state.ram_fraction, theme, .{
+        .text  = ram_label,
+        .style = label_style,
+    });
+}
 
 // --- Draw --------------------------------------------------------------------
 
@@ -108,9 +157,9 @@ fn draw(state: *State, win: vaxis.Window) void {
         "j/k: select  q: quit",
         zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
 
-    // Body panes carry only their borders at this commit; widget
-    // content lands in commits 4-6.
-    _ = p.overview;
+    drawOverview(state, p.overview.win, theme);
+
+    // Network and processes content land in commits 5-6.
     _ = p.network;
     _ = p.processes;
 }
@@ -166,6 +215,8 @@ pub fn main(init: std.process.Init) !void {
         .ram_fraction  = 0.0,
         .net_history   = .{0.0} ** 80,
         .process_table = .{ .columns = &.{} },
+        .cpu_label_buf = undefined,
+        .ram_label_buf = undefined,
     };
 
     try app.run(&state, activeFocus, update, draw, .{
