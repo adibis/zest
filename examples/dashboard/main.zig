@@ -199,7 +199,7 @@ fn draw(state: *State, win: vaxis.Window) void {
 
     const title_bar = zest.TitleBar(zest.Color){};
     title_bar.draw(p.header.win, theme, .{
-        .text  = " zest · dashboard ",
+        .text  = " Zest Dashboard ",
         .style = .{ .fg = .background, .bg = .color_4, .text = .{ .bold = true } },
         .caps  = .round,
     });
