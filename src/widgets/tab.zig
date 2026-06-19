@@ -10,13 +10,15 @@
 //! Visual identity:
 //!
 //!   ` Tab 0   Tab 1   Tab 2 `
-//!     ^^^^^^^                  ← active_style (typically bold + accent)
-//!             ^^^^^^^^^^^^^^^  ← inactive_style (typically dim)
+//!     ▔▔▔▔▔▔                   ← underline on row 1 below active
 //!
 //! Labels are padded with a single space on each side so adjacent
-//! tabs read as distinct strips. A taller window leaves the rows
-//! below the strip alone; the optional active-indicator underline
-//! lands in a follow-up commit.
+//! tabs read as distinct strips. On a 1-row window only the strip
+//! itself renders; with 2+ rows the active tab gets an upper-one-
+//! eighth block (`▔`) underline on the row below in the active
+//! style, so the strip reads correctly even when the text style
+//! difference alone isn't distinctive (NO_COLOR, monochrome
+//! terminal).
 
 const std = @import("std");
 const vaxis = @import("vaxis");
@@ -90,6 +92,30 @@ pub fn Tab(comptime C: type) type {
                         .style = inactive_resolved,
                     });
                     x += 1;
+                }
+            }
+
+            // Active-tab underline on row 1. The `▔` glyph fills the
+            // top 1/8 of its cell, so on row 1 it sits visually
+            // immediately below the row-0 label and reads as an
+            // attached underline.
+            if (win.height >= 2) {
+                var ux: u16 = 0;
+                for (self.labels, 0..) |label, i| {
+                    const tab_w: u16 = 2 + @as(u16, @intCast(label.len));
+                    if (i == self.active) {
+                        const end: u16 = @min(ux + tab_w, win.width);
+                        var col: u16 = ux;
+                        while (col < end) : (col += 1) {
+                            win.writeCell(col, 1, .{
+                                .char  = .{ .grapheme = "▔", .width = 1 },
+                                .style = active_resolved,
+                            });
+                        }
+                        break;
+                    }
+                    ux += tab_w;
+                    if (i + 1 < self.labels.len) ux += 1;
                 }
             }
         }
@@ -197,6 +223,55 @@ test "Tab.draw: zero-width window does not panic" {
     const t: Tab(Color) = .{ .labels = &labels };
     t.draw(win, catppuccin_mocha);
     try std.testing.expectEqualStrings(" ", screen.readCell(0, 0).?.char.grapheme);
+}
+
+test "Tab.draw: active tab gets a ▔ underline on row 1" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 2, .cols = 16, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 16, 2);
+    const labels = [_][]const u8{ "Demo", "Dash" };
+    const t: Tab(Color) = .{ .labels = &labels, .active = 1 };
+    t.draw(win, catppuccin_mocha);
+    // "Demo" tab is at cols 0-5 (padding+text+padding), gap at 6,
+    // "Dash" tab is at cols 7-12. Active = 1 → underline at 7-12.
+    try std.testing.expectEqualStrings(" ", screen.readCell(6, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("▔", screen.readCell(7, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("▔", screen.readCell(8, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings("▔", screen.readCell(12, 1).?.char.grapheme);
+    try std.testing.expectEqualStrings(" ", screen.readCell(13, 1).?.char.grapheme);
+}
+
+test "Tab.draw: 1-row window skips the underline silently" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 1, .cols = 8, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 8, 1);
+    const labels = [_][]const u8{"X"};
+    const t: Tab(Color) = .{ .labels = &labels };
+    t.draw(win, catppuccin_mocha);
+    // Just the strip on row 0; nothing on row 1 because the window
+    // is only 1 row tall.
+    try std.testing.expectEqualStrings("X", screen.readCell(1, 0).?.char.grapheme);
+}
+
+test "Tab.draw: underline carries active_style fg" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 2, .cols = 6, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 6, 2);
+    const labels = [_][]const u8{"X"};
+    const t: Tab(Color) = .{
+        .labels       = &labels,
+        .active_style = .{ .fg = .color_4 },
+    };
+    t.draw(win, catppuccin_mocha);
+    const want_fg = catppuccin_mocha.colors.get(.color_4);
+    try std.testing.expectEqual(want_fg, screen.readCell(0, 1).?.style.fg);
+    try std.testing.expectEqual(want_fg, screen.readCell(2, 1).?.style.fg);
 }
 
 test "Tab(C): works with a user-defined color enum" {
