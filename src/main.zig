@@ -1,73 +1,88 @@
-//! Zest framework demo — two focus domains, scrollable list, custom theme.
+//! Zest framework demo — tabbed multi-view showcase.
+//!
+//! Tab 0 (Showcase): two focus domains, scrollable list, widget gallery,
+//! and a live tick-driven bottom strip.
+//! Tab 1 (Dashboard): system-stats style view with CPU/RAM gauges,
+//! network sparkline, and a process table.
 //!
 //! The sidebar uses the built-in Catppuccin palette (Mocha/Latte selected at
 //! runtime from the terminal's reported color scheme); apps that set
-//! `NO_COLOR` get a no-colour theme regardless. The showcase panel uses a
-//! separate DiffColor enum and diff theme — two Theme(C) instances coexist
-//! in one draw() call, no global state. The bottom strip is a worked
+//! `NO_COLOR` get a no-colour theme regardless. The bottom strip is a worked
 //! example of every viz widget the framework ships: progress bar, gauge,
 //! sparkline, spinner.
 //!
-//! Tab: cycle within active domain   Ctrl-W: switch domain
-//! j/k or arrows: navigate list      0-4: jump to panel    q: quit
+//! Keybindings:
+//!   h/l or ←/→ — switch tab
+//!   Tab        — cycle focus within active domain
+//!   Ctrl-W     — switch domain (Showcase tab)
+//!   j/k or arrows — navigate list / table
+//!   0-4        — jump to sidebar pane (Showcase tab)
+//!   q          — quit
 
 const std = @import("std");
 const vaxis = @import("vaxis");
 const zest = @import("zest");
 
 // --- Layout ------------------------------------------------------------------
+//
+// The outer frame (header strip, tab strip, content, footer strip) is
+// computed by hand inside draw() because there's only one focusable
+// content region and the four chrome rows are fixed-height. The
+// showcase tab's body (sidebar + main domains) is a comptime layout
+// resolved against whatever child window the content area gives it.
 
-const layout = zest.hsplit(.{
+const showcase_layout = zest.vsplit(.{
     .children = &.{
-        zest.pane(.{ .id = "header", .size = .{ .fixed = 1 }, .focusable = false }),
-        zest.vsplit(.{
-            .size     = .{ .fraction = 1 },
-            .children = &.{
-                zest.domain(.{
-                    .id        = "sidebar",
-                    .direction = zest.Direction.vertical,
-                    .size      = .{ .percent = 25 },
-                    .children  = &.{
-                        zest.pane(.{ .id = "files",    .size = .{ .fraction = 1 } }),
-                        zest.pane(.{ .id = "branches", .size = .{ .fraction = 1 } }),
-                        zest.pane(.{ .id = "commits",  .size = .{ .fraction = 1 } }),
-                        zest.pane(.{ .id = "stash",    .size = .{ .fraction = 1 } }),
-                    },
-                }),
-                zest.domain(.{
-                    .id        = "main",
-                    .direction = zest.Direction.vertical,
-                    .size      = .{ .fraction = 1 },
-                    .children  = &.{
-                        zest.pane(.{ .id = "showcase", .size = .{ .fraction = 1 } }),
-                        // Bottom strip: progress + sparkline stacked on the
-                        // left, a thin vertical gauge on the right. Total
-                        // strip is 6 rows tall — progress and log each take
-                        // 3 rows (one content row plus borders); the gauge
-                        // takes 6 columns (four inner cols, enough for the
-                        // "100%" worst-case label).
-                        zest.vsplit(.{
-                            .size     = .{ .fixed = 6 },
+        zest.domain(.{
+            .id        = "sidebar",
+            .direction = zest.Direction.vertical,
+            .size      = .{ .percent = 25 },
+            .children  = &.{
+                zest.pane(.{ .id = "files",    .size = .{ .fraction = 1 } }),
+                zest.pane(.{ .id = "branches", .size = .{ .fraction = 1 } }),
+                zest.pane(.{ .id = "commits",  .size = .{ .fraction = 1 } }),
+                zest.pane(.{ .id = "stash",    .size = .{ .fraction = 1 } }),
+            },
+        }),
+        zest.domain(.{
+            .id        = "main",
+            .direction = zest.Direction.vertical,
+            .size      = .{ .fraction = 1 },
+            .children  = &.{
+                zest.pane(.{ .id = "showcase", .size = .{ .fraction = 1 } }),
+                // Bottom strip: progress + sparkline stacked on the
+                // left, a thin vertical gauge on the right. Total
+                // strip is 6 rows tall — progress and log each take
+                // 3 rows (one content row plus borders); the gauge
+                // takes 6 columns (four inner cols, enough for the
+                // "100%" worst-case label).
+                zest.vsplit(.{
+                    .size     = .{ .fixed = 6 },
+                    .children = &.{
+                        zest.hsplit(.{
+                            .size     = .{ .fraction = 1 },
                             .children = &.{
-                                zest.hsplit(.{
-                                    .size     = .{ .fraction = 1 },
-                                    .children = &.{
-                                        zest.pane(.{ .id = "progress", .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
-                                        zest.pane(.{ .id = "log",      .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
-                                    },
-                                }),
-                                zest.pane(.{ .id = "loading", .size = .{ .fixed = 6 }, .border = true, .focusable = false }),
+                                zest.pane(.{ .id = "progress", .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
+                                zest.pane(.{ .id = "log",      .size = .{ .fixed = 3 }, .border = true, .focusable = false }),
                             },
                         }),
+                        zest.pane(.{ .id = "loading", .size = .{ .fixed = 6 }, .border = true, .focusable = false }),
                     },
                 }),
             },
         }),
-        zest.pane(.{ .id = "footer", .size = .{ .fixed = 1 }, .focusable = false }),
     },
 });
 
-const FocusState = zest.Layout.FocusStateType(layout);
+const FocusState = zest.Layout.FocusStateType(showcase_layout);
+
+// Frame chrome heights — header, tab strip, footer.
+const header_h: u16 = 1;
+const tabs_h:   u16 = 2;
+const footer_h: u16 = 1;
+const chrome_h: u16 = header_h + tabs_h + footer_h;
+
+const tab_labels = [_][]const u8{ "Showcase", "Dashboard" };
 
 const files_items = [_][]const u8{
     "src/main.zig",
@@ -125,10 +140,13 @@ const State = struct {
     /// ~0.6 Hz rotations — comfortable to look at — while the footer
     /// keeps its full ~1 Hz braille smoothness.
     tick_counter:      u32,
+    /// Top-level tab strip switching between the showcase and the
+    /// dashboard views. `handleKey` advances on h/l or ←/→.
+    tab:               zest.Tab(zest.Color),
 };
 
 fn activeFocus(state: *State) *zest.FocusStack {
-    return zest.Layout.focusStateActiveFocus(layout, &state.focus);
+    return zest.Layout.focusStateActiveFocus(showcase_layout, &state.focus);
 }
 
 /// Format a fraction in [0,1] as "{N}%" into `buf`. Returns the formatted
@@ -506,15 +524,48 @@ fn draw(state: *State, win: vaxis.Window) void {
     else
         zest.catppuccin_latte;
 
-    const p = zest.Layout.panelsFromState(layout, win,
-        .{ .x = 0, .y = 0, .width = win.width, .height = win.height },
-        &state.focus);
+    // Frame regions: header, tab strip, content area, footer.
+    const header_win  = win.child(.{ .y_off = 0,                       .height = header_h });
+    const tabs_win    = win.child(.{ .y_off = header_h,                .height = tabs_h });
+    const content_y:    u16 = header_h + tabs_h;
+    const content_hgt:  u16 = win.height -| chrome_h;
+    const content_win = win.child(.{ .y_off = content_y,               .height = content_hgt });
+    const footer_win  = win.child(.{ .y_off = win.height -| footer_h,  .height = footer_h });
 
-    title_bar.draw(p.header.win, theme, .{
-        .text  = " zest demo ",
+    // Header
+    title_bar.draw(header_win, theme, .{
+        .text  = " Zest ",
         .style = .{ .fg = .background, .bg = .color_3, .text = .{ .bold = true } },
         .caps  = .round,
     });
+
+    // Tab strip
+    state.tab.draw(tabs_win, theme);
+
+    // Active tab content
+    switch (state.tab.active) {
+        0 => drawShowcaseTab(state, content_win, theme),
+        1 => drawDashboardPlaceholder(content_win, theme),
+        else => {},
+    }
+
+    // Footer: spinner glyph at col 0, keybindings hint two cols over.
+    state.spinner.draw(footer_win, theme);
+    const footer_keys = footer_win.child(.{
+        .x_off = 2,
+        .width = footer_win.width -| 2,
+    });
+    zest.Text.draw(footer_keys,
+        "h/l: tab  j/k: navigate  ^W: switch  0-4: jump  q: quit",
+        zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
+}
+
+fn drawShowcaseTab(state: *State, content_win: vaxis.Window, theme: zest.DefaultTheme) void {
+    if (content_win.width == 0 or content_win.height == 0) return;
+
+    const p = zest.Layout.panelsFromState(showcase_layout, content_win,
+        .{ .x = 0, .y = 0, .width = content_win.width, .height = content_win.height },
+        &state.focus);
 
     const files_inner = drawSidebarPane(p.files,    "1 files",    theme);
     _ = drawSidebarPane(p.branches, "2 branches", theme);
@@ -527,10 +578,7 @@ fn draw(state: *State, win: vaxis.Window) void {
     drawShowcase(p.showcase.win, p.showcase.focused,
         files_items[state.files_list.selected], theme, state);
 
-    // Progress bar with a centred percentage label. The three label
-    // styles bridge the per-column flip as the bar sweeps across the
-    // label — bg goes default → dim → green in two steps instead of
-    // jumping in one.
+    // Progress bar with a centred percentage label.
     const pct_text = fmtPct(&state.progress_text_buf, state.progress_fraction);
     progress_bar.draw(p.progress.win, state.progress_fraction, theme, .{
         .text       = pct_text,
@@ -539,9 +587,7 @@ fn draw(state: *State, win: vaxis.Window) void {
         .in_empty   = .{ .fg = .color_7,                    .text = .{ .bold = true } },
     });
 
-    // Gauge fraction tracks the sidebar's selected file — moving the
-    // cursor through the list raises the fill. The widget reserves
-    // its own top row for the percentage label.
+    // Gauge fraction tracks the sidebar's selected file.
     const loading_fraction = if (files_items.len > 0)
         @as(f32, @floatFromInt(state.files_list.selected + 1)) /
         @as(f32, @floatFromInt(files_items.len))
@@ -554,16 +600,14 @@ fn draw(state: *State, win: vaxis.Window) void {
     });
 
     progress_sparkline.draw(p.log.win, &state.progress_history, theme);
+}
 
-    // Footer: spinner glyph at col 0, keybindings hint two cols over.
-    state.spinner.draw(p.footer.win, theme);
-    const footer_keys = p.footer.win.child(.{
-        .x_off = 2,
-        .width = p.footer.win.width -| 2,
-    });
-    zest.Text.draw(footer_keys,
-        "tab: cycle  j/k: navigate  ^W: switch  0-4: jump  q: quit",
-        zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
+fn drawDashboardPlaceholder(content_win: vaxis.Window, theme: zest.DefaultTheme) void {
+    if (content_win.width == 0 or content_win.height == 0) return;
+    zest.Text.draw(content_win,
+        "Dashboard coming soon  ·  press h to return to the showcase.",
+        zest.DefaultStyle{ .fg = .color_8 }, theme,
+        .{ .anchor = .{ .horizontal = .center, .vertical = .middle } });
 }
 
 fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.UpdateResult {
@@ -571,40 +615,20 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
     switch (event) {
         .key_press => |key| {
             if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
-            if (key.matches('w', .{ .ctrl = true })) {
-                state.focus.active_domain = if (state.focus.active_domain == .sidebar) .main else .sidebar;
+
+            // Tab strip nav: h / l and arrow left / right.
+            const is_tab_key = key.matches('h', .{}) or key.matches('l', .{})
+                or key.matches(vaxis.Key.left, .{}) or key.matches(vaxis.Key.right, .{});
+            if (is_tab_key) {
+                state.tab.handleKey(key);
                 return .redraw;
             }
-            switch (key.codepoint) {
-                'j', 'k', vaxis.Key.down, vaxis.Key.up => {
-                    if (state.focus.active_domain == .sidebar and state.focus.sidebar.is(.files)) {
-                        state.files_list.handleKey(key, files_items.len);
-                    } else if (state.focus.active_domain == .main) {
-                        // Main domain focused — j/k drive the
-                        // showcase table's selection. The gallery's
-                        // other widgets are non-interactive, so the
-                        // table is the natural recipient here.
-                        state.showcase_table.handleKey(key, showcase_table_rows.len);
-                    }
-                    return .redraw;
-                },
-                '0' => {
-                    state.focus.active_domain = .main;
-                    state.focus.main.set(.showcase);
-                },
-                '1'...'4' => |ch| {
-                    state.focus.active_domain = .sidebar;
-                    state.focus.sidebar.set(switch (ch) {
-                        '1' => .files,
-                        '2' => .branches,
-                        '3' => .commits,
-                        '4' => .stash,
-                        else => unreachable,
-                    });
-                },
+
+            // Per-tab content routing.
+            switch (state.tab.active) {
+                0 => return updateShowcaseTab(state, key),
                 else => return .idle,
             }
-            return .redraw;
         },
         .winsize, .focus_changed => return .redraw,
         .color_scheme => |cs| {
@@ -633,6 +657,39 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
     }
 }
 
+fn updateShowcaseTab(state: *State, key: vaxis.Key) zest.UpdateResult {
+    if (key.matches('w', .{ .ctrl = true })) {
+        state.focus.active_domain = if (state.focus.active_domain == .sidebar) .main else .sidebar;
+        return .redraw;
+    }
+    switch (key.codepoint) {
+        'j', 'k', vaxis.Key.down, vaxis.Key.up => {
+            if (state.focus.active_domain == .sidebar and state.focus.sidebar.is(.files)) {
+                state.files_list.handleKey(key, files_items.len);
+            } else if (state.focus.active_domain == .main) {
+                state.showcase_table.handleKey(key, showcase_table_rows.len);
+            }
+            return .redraw;
+        },
+        '0' => {
+            state.focus.active_domain = .main;
+            state.focus.main.set(.showcase);
+        },
+        '1'...'4' => |ch| {
+            state.focus.active_domain = .sidebar;
+            state.focus.sidebar.set(switch (ch) {
+                '1' => .files,
+                '2' => .branches,
+                '3' => .commits,
+                '4' => .stash,
+                else => unreachable,
+            });
+        },
+        else => return .idle,
+    }
+    return .redraw;
+}
+
 pub fn main(init: std.process.Init) !void {
     var tty_buf: [4096]u8 = undefined;
     var app = try zest.App.init(init.io, init.gpa, init.environ_map, &tty_buf);
@@ -644,7 +701,7 @@ pub fn main(init: std.process.Init) !void {
     const no_color = if (init.environ_map.get("NO_COLOR")) |v| v.len > 0 else false;
 
     var state: State = .{
-        .focus             = zest.Layout.focusStateInit(layout),
+        .focus             = zest.Layout.focusStateInit(showcase_layout),
         .color_scheme      = .dark,
         .files_list        = .{ .widget_theme = zest.mocha_widget },
         .progress_fraction = 0.0,
@@ -667,6 +724,11 @@ pub fn main(init: std.process.Init) !void {
             .selected       = 1,
         },
         .tick_counter      = 0,
+        .tab               = .{
+            .labels         = &tab_labels,
+            .active_style   = .{ .fg = .color_4, .text = .{ .bold = true } },
+            .inactive_style = .{ .fg = .color_8 },
+        },
     };
 
     try app.run(&state, activeFocus, update, draw, .{
