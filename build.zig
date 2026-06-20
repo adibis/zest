@@ -41,43 +41,6 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_mod_tests.step);
 
-    // --- Examples -----------------------------------------------------------
-    //
-    // Each entry under examples/ is its own runnable executable, sharing the
-    // top-level zest module and the vaxis dependency. Add `zig build dashboard`
-    // (and so on) to launch a specific example; `zig build run-examples`
-    // builds them all into the install prefix.
-    const examples = [_]struct {
-        name: []const u8,
-        path: []const u8,
-        desc: []const u8,
-    }{
-        .{
-            .name = "dashboard",
-            .path = "examples/dashboard/main.zig",
-            .desc = "Run the system-stats dashboard example",
-        },
-    };
-    for (examples) |ex| {
-        const ex_exe = b.addExecutable(.{
-            .name = ex.name,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path(ex.path),
-                .target = target,
-                .optimize = optimize,
-                .imports = &.{
-                    .{ .name = "zest", .module = mod },
-                    .{ .name = "vaxis", .module = vaxis_mod },
-                },
-            }),
-        });
-        b.installArtifact(ex_exe);
-        const ex_run = b.addRunArtifact(ex_exe);
-        ex_run.step.dependOn(b.getInstallStep());
-        if (b.args) |args| ex_run.addArgs(args);
-        b.step(ex.name, ex.desc).dependOn(&ex_run.step);
-    }
-
     // --- Benchmarks ---------------------------------------------------------
     //
     // `zig build bench` runs the micro-benchmark harness. Built in

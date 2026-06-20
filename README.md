@@ -332,14 +332,14 @@ fn draw(state: *State, win: vaxis.Window) void {
 try app.run(&state, activeFocus, update, draw, .{});
 ```
 
-See [`src/main.zig`](src/main.zig) for the complete demo, and
-[`examples/dashboard/main.zig`](examples/dashboard/main.zig) for a
-worked system-stats dashboard composing every viz widget — CPU/RAM
-gauges, network sparkline, process table, tick-driven spinner.
+See [`src/main.zig`](src/main.zig) for the complete demo. It runs as
+a tabbed multi-view app: the **Showcase** tab carries the widget
+gallery + tick-driven bottom strip; the **Dashboard** tab carries a
+worked system-stats view (CPU/RAM gauges, network sparkline, process
+table). `h` / `l` (or `←` / `→`) switch tabs.
 
 ```bash
-zig build run         # run the demo
-zig build dashboard   # run the dashboard example
+zig build run         # run the tabbed demo
 zig build test        # run the library test suite
 zig build bench       # run the latency benchmark (ReleaseFast)
 ```
@@ -356,7 +356,7 @@ zig build bench       # run the latency benchmark (ReleaseFast)
 | 4 — Core Widgets & Styling | `Text` (with `Anchor` placement), `List(C)`, `Theme(C)` / `Style(C)` / `WidgetTheme(C)`, `ByFocus(T)` / `ByState(E, T)`, Catppuccin presets | ✅ Complete |
 | 5 — Viz Widgets | `ProgressBar(C)`, `Gauge(C)`, `Spinner(C)`, `Sparkline(C)`, `TitleBar(C)`, sub-cell discretisation, `.tick` event + `RunOpts.tick_interval`, `Theme(C).noColor()` | ✅ Complete |
 | 6 — Table & Custom Widgets | `Table(C)` with column sizing, alignment, scroll, zebra stripes; custom widget protocol documented in `docs/custom-widgets.md` with a worked example | ✅ Complete |
-| 7 — Release | Dashboard example (`examples/dashboard/`), benchmark harness (`bench/`, `zig build bench`), `docs/`, v0.1.0 release tag | 🔄 In progress |
+| 7 — Release | Tabbed multi-view demo (`zig build run`, Showcase + Dashboard tabs), benchmark harness (`bench/`, `zig build bench`), `docs/`, v0.1.0 release tag | 🔄 In progress |
 
 ---
 
@@ -368,7 +368,7 @@ zig build bench       # run the latency benchmark (ReleaseFast)
 | Frame layout latency (p99) | < 150 µs | 1.9 µs (`panelsFromState`, demo-shaped layout) |
 | Release binary size | < 4 MB | *not yet measured* |
 
-Frame latency is measured by the benchmark harness (`zig build bench`); add a scenario to `bench/main.zig` to track another hot path. RSS and binary size are spot-checked against the dashboard example built with `ReleaseSmall`.
+Frame latency is measured by the benchmark harness (`zig build bench`); add a scenario to `bench/main.zig` to track another hot path. RSS and binary size are spot-checked against the demo binary built with `ReleaseSmall`.
 
 ---
 
