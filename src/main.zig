@@ -76,6 +76,26 @@ const showcase_layout = zest.vsplit(.{
 
 const FocusState = zest.Layout.FocusStateType(showcase_layout);
 
+// Dashboard tab body — overview / network header strips and a
+// process table inside a focus domain so the table picks up
+// `focused = true` on its pane when the tab is active.
+const dashboard_layout = zest.hsplit(.{
+    .children = &.{
+        zest.pane(.{ .id = "overview", .size = .{ .fixed = 5 }, .border = true, .focusable = false }),
+        zest.pane(.{ .id = "network",  .size = .{ .fixed = 6 }, .border = true, .focusable = false }),
+        zest.domain(.{
+            .id        = "body",
+            .direction = zest.Direction.vertical,
+            .size      = .{ .fraction = 1 },
+            .children  = &.{
+                zest.pane(.{ .id = "processes", .size = .{ .fraction = 1 }, .border = true }),
+            },
+        }),
+    },
+});
+
+const DashboardFocus = zest.Layout.FocusStateType(dashboard_layout);
+
 // Frame chrome heights — header, tab strip, footer.
 const header_h: u16 = 1;
 const tabs_h:   u16 = 2;
@@ -83,6 +103,33 @@ const footer_h: u16 = 1;
 const chrome_h: u16 = header_h + tabs_h + footer_h;
 
 const tab_labels = [_][]const u8{ "Showcase", "Dashboard" };
+
+// Mock peak network throughput (KB/s) the 0..1 fractions in
+// dashboard.net_history map onto. Adjust when swapping in real
+// measurements.
+const net_peak_kbps: f32 = 200.0;
+
+// Mock process snapshot for the dashboard tab — name + PID are
+// realistic; CPU / MEM values are picked so the rows sort roughly
+// by CPU descending. Swap for a real /proc reader (Linux) or
+// libproc poll (macOS) when adapting.
+const process_rows = [_][]const []const u8{
+    &.{ "  1234", "zest",         " 18.4%", "  1.2%" },
+    &.{ "  5678", "ghostty",      " 12.1%", "  2.4%" },
+    &.{ "    91", "kernel_task",  "  8.7%", "  0.1%" },
+    &.{ "  2901", "WindowServer", "  6.5%", "  3.2%" },
+    &.{ "  4023", "Slack",        "  3.8%", "  4.8%" },
+    &.{ "  7720", "firefox",      "  2.9%", " 12.4%" },
+    &.{ "    88", "launchd",      "  0.4%", "  0.0%" },
+    &.{ "    93", "syslogd",      "  0.2%", "  0.0%" },
+};
+
+const process_columns = [_]zest.TableColumn(zest.Color){
+    .{ .header = "  PID", .size = .{ .fixed = 7 },    .alignment = .right },
+    .{ .header = "NAME",  .size = .{ .fraction = 1 } },
+    .{ .header = "CPU",   .size = .{ .fixed = 8 },    .alignment = .right },
+    .{ .header = "MEM",   .size = .{ .fixed = 8 },    .alignment = .right },
+};
 
 const files_items = [_][]const u8{
     "src/main.zig",
@@ -143,10 +190,32 @@ const State = struct {
     /// Top-level tab strip switching between the showcase and the
     /// dashboard views. `handleKey` advances on h/l or ←/→.
     tab:               zest.Tab(zest.Color),
+    /// Focus state for the dashboard tab — separate from the
+    /// showcase tab's focus so each tab keeps its own selection /
+    /// active-domain across switches.
+    dashboard_focus:   DashboardFocus,
+    /// Process table for the dashboard tab. Same selection +
+    /// scroll model as the sidebar list; j/k routes here when the
+    /// dashboard tab is active.
+    dashboard_table:   zest.Table(zest.Color),
+    /// Mock CPU and RAM fractions, walked by .tick.
+    cpu_fraction:      f32,
+    ram_fraction:      f32,
+    /// Mock network throughput history (right-edge anchored), shifted
+    /// one sample per tick.
+    net_history:       [80]f32,
+    /// Per-frame scratch buffers for the dashboard's gauge / sparkline
+    /// labels. Same draw-time-write lifetime as the showcase buffers.
+    cpu_label_buf:     [16]u8,
+    ram_label_buf:     [16]u8,
+    net_label_buf:     [32]u8,
 };
 
 fn activeFocus(state: *State) *zest.FocusStack {
-    return zest.Layout.focusStateActiveFocus(showcase_layout, &state.focus);
+    return switch (state.tab.active) {
+        1 => zest.Layout.focusStateActiveFocus(dashboard_layout, &state.dashboard_focus),
+        else => zest.Layout.focusStateActiveFocus(showcase_layout, &state.focus),
+    };
 }
 
 /// Format a fraction in [0,1] as "{N}%" into `buf`. Returns the formatted
@@ -155,6 +224,12 @@ fn activeFocus(state: *State) *zest.FocusStack {
 fn fmtPct(buf: []u8, fraction: f32) []const u8 {
     const pct: u32 = @intFromFloat(std.math.clamp(fraction, 0.0, 1.0) * 100.0);
     return std.fmt.bufPrint(buf, "{d}%", .{pct}) catch "";
+}
+
+/// Format a "{prefix}  {N}%" label for the dashboard's gauge headings.
+fn fmtPctLabel(buf: []u8, prefix: []const u8, fraction: f32) []const u8 {
+    const pct: u32 = @intFromFloat(std.math.clamp(fraction, 0.0, 1.0) * 100.0);
+    return std.fmt.bufPrint(buf, "{s}  {d}%", .{ prefix, pct }) catch "";
 }
 
 // --- Widget instances --------------------------------------------------------
@@ -205,6 +280,20 @@ const showcase_h_gauge_red    = zest.Gauge(zest.Color){ .orientation = .horizont
 const showcase_v_gauge_blue   = zest.Gauge(zest.Color){ .orientation = .vertical, .filled_style = .{ .fg = .color_4 } };
 const showcase_v_gauge_green  = zest.Gauge(zest.Color){ .orientation = .vertical, .filled_style = .{ .fg = .color_2 } };
 const showcase_v_gauge_purple = zest.Gauge(zest.Color){ .orientation = .vertical, .filled_style = .{ .fg = .color_5 } };
+
+// --- Dashboard widget instances ---------------------------------------------
+
+const cpu_gauge = zest.Gauge(zest.Color){
+    .orientation  = .horizontal,
+    .filled_style = .{ .fg = .color_2 }, // green
+};
+const ram_gauge = zest.Gauge(zest.Color){
+    .orientation  = .horizontal,
+    .filled_style = .{ .fg = .color_4 }, // blue
+};
+const net_sparkline = zest.Sparkline(zest.Color){
+    .style = .{ .fg = .color_5 },
+};
 
 // Showcase table — three columns demonstrating mixed Size variants and
 // per-column alignment. Selection highlight uses the same widget theme
@@ -545,7 +634,7 @@ fn draw(state: *State, win: vaxis.Window) void {
     // Active tab content
     switch (state.tab.active) {
         0 => drawShowcaseTab(state, content_win, theme),
-        1 => drawDashboardPlaceholder(content_win, theme),
+        1 => drawDashboardTab(state, content_win, theme),
         else => {},
     }
 
@@ -602,12 +691,60 @@ fn drawShowcaseTab(state: *State, content_win: vaxis.Window, theme: zest.Default
     progress_sparkline.draw(p.log.win, &state.progress_history, theme);
 }
 
-fn drawDashboardPlaceholder(content_win: vaxis.Window, theme: zest.DefaultTheme) void {
+fn drawDashboardTab(state: *State, content_win: vaxis.Window, theme: zest.DefaultTheme) void {
     if (content_win.width == 0 or content_win.height == 0) return;
-    zest.Text.draw(content_win,
-        "Dashboard coming soon  ·  press h to return to the showcase.",
-        zest.DefaultStyle{ .fg = .color_8 }, theme,
-        .{ .anchor = .{ .horizontal = .center, .vertical = .middle } });
+
+    const p = zest.Layout.panelsFromState(dashboard_layout, content_win,
+        .{ .x = 0, .y = 0, .width = content_win.width, .height = content_win.height },
+        &state.dashboard_focus);
+
+    drawDashboardOverview(state, p.overview.win, theme);
+    drawDashboardNetwork(state, p.network.win, theme);
+    state.dashboard_table.draw(p.processes.win, &process_rows, p.processes.focused, theme);
+}
+
+fn drawDashboardOverview(state: *State, win: vaxis.Window, theme: zest.DefaultTheme) void {
+    if (win.height == 0) return;
+    const half_w: u16 = win.width / 2;
+    if (half_w < 6) return;
+
+    const cpu_label = fmtPctLabel(&state.cpu_label_buf, "CPU", state.cpu_fraction);
+    const ram_label = fmtPctLabel(&state.ram_label_buf, "RAM", state.ram_fraction);
+    const label_style = zest.DefaultStyle{ .fg = .color_7, .text = .{ .bold = true } };
+
+    const cpu_win = win.child(.{ .width = half_w });
+    cpu_gauge.draw(cpu_win, state.cpu_fraction, theme, .{
+        .text  = cpu_label,
+        .style = label_style,
+    });
+
+    const ram_win = win.child(.{ .x_off = half_w, .width = win.width - half_w });
+    ram_gauge.draw(ram_win, state.ram_fraction, theme, .{
+        .text  = ram_label,
+        .style = label_style,
+    });
+}
+
+fn drawDashboardNetwork(state: *State, win: vaxis.Window, theme: zest.DefaultTheme) void {
+    if (win.height == 0 or win.width == 0) return;
+    const latest = std.math.clamp(
+        state.net_history[state.net_history.len - 1],
+        0.0,
+        1.0,
+    );
+    const kbps: u32 = @intFromFloat(latest * net_peak_kbps);
+    const label = std.fmt.bufPrint(
+        &state.net_label_buf,
+        "Network  ·  {d} KB/s",
+        .{kbps},
+    ) catch "";
+    zest.Text.draw(win, label,
+        zest.DefaultStyle{ .fg = .color_7, .text = .{ .bold = true } }, theme, .{});
+    if (win.height >= 3) {
+        const sl_y: u16 = win.height - 1;
+        const sl_win = win.child(.{ .y_off = sl_y, .height = 1 });
+        net_sparkline.draw(sl_win, &state.net_history, theme);
+    }
 }
 
 fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.UpdateResult {
@@ -627,6 +764,7 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
             // Per-tab content routing.
             switch (state.tab.active) {
                 0 => return updateShowcaseTab(state, key),
+                1 => return updateDashboardTab(state, key),
                 else => return .idle,
             }
         },
@@ -643,14 +781,40 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
             state.progress_fraction = @mod(state.progress_fraction + 0.005, 1.0);
             state.spinner.advance();
             state.tick_counter +%= 1;
-            // Shift the history buffer left by one and append the latest
-            // sample on the right. Demo simplification — see field doc.
+            // Shift the showcase history buffer left by one and append the
+            // latest sample on the right. Demo simplification — see field doc.
             std.mem.copyForwards(
                 f32,
                 state.progress_history[0 .. state.progress_history.len - 1],
                 state.progress_history[1..],
             );
             state.progress_history[state.progress_history.len - 1] = state.progress_fraction;
+
+            // Dashboard mock walks — sine-driven so the gauges always
+            // have something to show without depending on real sysinfo.
+            const t: f32 = @as(f32, @floatFromInt(state.tick_counter)) * 0.05;
+            state.cpu_fraction = 0.5 + 0.4 * @sin(t);
+            state.ram_fraction = 0.4 + 0.2 * @sin(t * 0.3);
+            std.mem.copyForwards(
+                f32,
+                state.net_history[0 .. state.net_history.len - 1],
+                state.net_history[1..],
+            );
+            state.net_history[state.net_history.len - 1] = std.math.clamp(
+                0.3 + 0.3 * @sin(t * 0.7) + 0.2 * @sin(t * 2.1),
+                0.0,
+                1.0,
+            );
+            return .redraw;
+        },
+        else => return .idle,
+    }
+}
+
+fn updateDashboardTab(state: *State, key: vaxis.Key) zest.UpdateResult {
+    switch (key.codepoint) {
+        'j', 'k', vaxis.Key.down, vaxis.Key.up => {
+            state.dashboard_table.handleKey(key, process_rows.len);
             return .redraw;
         },
         else => return .idle,
@@ -729,6 +893,20 @@ pub fn main(init: std.process.Init) !void {
             .active_style   = .{ .fg = .color_4, .text = .{ .bold = true } },
             .inactive_style = .{ .fg = .color_8 },
         },
+        .dashboard_focus   = zest.Layout.focusStateInit(dashboard_layout),
+        .dashboard_table   = .{
+            .columns        = &process_columns,
+            .header_style   = .{ .fg = .color_3, .bg = .color_8, .text = .{ .bold = true } },
+            .cell_style     = .{ .fg = .color_7 },
+            .alt_cell_style = .{ .fg = .color_7, .bg = .color_0 },
+            .widget_theme   = zest.mocha_widget,
+        },
+        .cpu_fraction      = 0.0,
+        .ram_fraction      = 0.0,
+        .net_history       = .{0.0} ** 80,
+        .cpu_label_buf     = undefined,
+        .ram_label_buf     = undefined,
+        .net_label_buf     = undefined,
     };
 
     try app.run(&state, activeFocus, update, draw, .{
