@@ -42,6 +42,8 @@ pub const Table               = @import("widgets/table.zig").Table;             
 pub const TableColumn         = @import("widgets/table.zig").Column;                 // generic: Column(C)
 pub const TableAlignment      = @import("widgets/table.zig").Alignment;
 pub const Tab                 = @import("widgets/tab.zig").Tab;                      // generic: Tab(C)
+pub const Popup               = @import("widgets/popup.zig").Popup;                  // generic: Popup(C)
+pub const PopupDim            = @import("widgets/popup.zig").Dim;
 pub const PanelsType = @import("widgets/box.zig").PanelsType;
 pub const Panel = @import("widgets/box.zig").Panel;
 pub const Focus           = @import("core/focus.zig").Focus;
@@ -84,6 +86,7 @@ test {
     _ = @import("widgets/title_bar.zig");
     _ = @import("widgets/table.zig");
     _ = @import("widgets/tab.zig");
+    _ = @import("widgets/popup.zig");
     // Tutorial widget — kept in the test block so docs and code
     // stay in sync; intentionally not exported.
     _ = @import("widgets/example_toggle.zig");
