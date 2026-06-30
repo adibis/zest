@@ -20,8 +20,16 @@
 //! coordinates stay at (0, 0); they don't have to know whether a
 //! title row is present.
 //!
-//! Subsequent commits add a backdrop dim pass and handleKey for
-//! Esc-to-dismiss.
+//! When `backdrop_style` is non-default, the popup first repaints
+//! every parent cell outside its own footprint with the backdrop
+//! style — typically a dim or default-bg blanket — so the popup
+//! visually pops above the rest of the screen. The pass writes
+//! spaces, so any content the parent had already painted is
+//! discarded under the dim. Apps that want to preserve parent
+//! visibility leave backdrop_style at its default and the parent
+//! content shows through unaltered.
+//!
+//! handleKey for Esc-to-dismiss lands in the next commit.
 
 const std = @import("std");
 const vaxis = @import("vaxis");
@@ -62,6 +70,14 @@ pub fn Popup(comptime C: type) type {
         /// Style applied to every cell of the title row when
         /// `title` is non-empty.
         title_style:  Style(C) = .{},
+        /// Optional style applied to every parent cell *outside*
+        /// the popup's own footprint. When non-default, the popup
+        /// repaints those cells with this style before drawing
+        /// itself — typically a dim or default-bg blanket so the
+        /// popup visually pops above the rest of the screen.
+        /// Defaults to "no backdrop": the parent content shows
+        /// through unaltered.
+        backdrop_style: ?Style(C) = null,
 
         const Self = @This();
 
@@ -92,6 +108,27 @@ pub fn Popup(comptime C: type) type {
 
             const x_off: u16 = (win.width  - w) / 2;
             const y_off: u16 = (win.height - h) / 2;
+
+            // Backdrop dim — paint every parent cell that isn't
+            // inside the popup's outer rect. Doing this before
+            // carving the inner window means the popup's own border
+            // and body overwrite the backdrop cleanly.
+            if (self.backdrop_style) |bs| {
+                const backdrop = theme.resolve(bs);
+                var y: u16 = 0;
+                while (y < win.height) : (y += 1) {
+                    var x: u16 = 0;
+                    while (x < win.width) : (x += 1) {
+                        const in_popup = x >= x_off and x < x_off + w
+                            and y >= y_off and y < y_off + h;
+                        if (in_popup) continue;
+                        win.writeCell(x, y, .{
+                            .char  = .{ .grapheme = " ", .width = 1 },
+                            .style = backdrop,
+                        });
+                    }
+                }
+            }
 
             const inner = win.child(.{
                 .x_off  = x_off,
@@ -341,6 +378,71 @@ test "Popup.draw: title set, body window shrinks by one row" {
     const body = p.draw(win, catppuccin_mocha).?;
     try std.testing.expectEqual(@as(u16, 10), body.width);
     try std.testing.expectEqual(@as(u16, 3),  body.height);
+}
+
+test "Popup.draw: backdrop_style repaints cells outside the popup footprint" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 10, .cols = 20, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 20, 10);
+    const p: Popup(Color) = .{
+        .is_open        = true,
+        .width          = .{ .percent = 60 },
+        .height         = .{ .percent = 60 },
+        .backdrop_style = .{ .bg = .color_0 },
+    };
+    _ = p.draw(win, catppuccin_mocha).?;
+    // 60%/60% of 20x10 → popup outer rect 12x6 centred at (4, 2),
+    // covering cols 4..15 and rows 2..7. Cells outside that rect
+    // carry the backdrop bg; cells inside it carry the popup's own
+    // border / body styles.
+    const want_bg = catppuccin_mocha.colors.get(.color_0);
+    try std.testing.expectEqual(want_bg, screen.readCell(0, 0).?.style.bg);
+    try std.testing.expectEqual(want_bg, screen.readCell(19, 9).?.style.bg);
+    try std.testing.expectEqual(want_bg, screen.readCell(3, 5).?.style.bg);
+    try std.testing.expectEqual(want_bg, screen.readCell(16, 5).?.style.bg);
+}
+
+test "Popup.draw: backdrop_style leaves cells inside the popup untouched" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 10, .cols = 20, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 20, 10);
+    const p: Popup(Color) = .{
+        .is_open        = true,
+        .width          = .{ .percent = 60 },
+        .height         = .{ .percent = 60 },
+        .body_style     = .{ .bg = .color_3 },
+        .backdrop_style = .{ .bg = .color_0 },
+    };
+    _ = p.draw(win, catppuccin_mocha).?;
+    // Inside the border: body_style bg. Cell (5, 3) is the top-
+    // left inner cell, which carries the body fill.
+    const want_body_bg = catppuccin_mocha.colors.get(.color_3);
+    try std.testing.expectEqual(want_body_bg, screen.readCell(5, 3).?.style.bg);
+}
+
+test "Popup.draw: null backdrop_style leaves parent cells alone" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 10, .cols = 20, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 20, 10);
+    // Pre-paint a cell outside where the popup will land.
+    win.writeCell(0, 0, .{
+        .char  = .{ .grapheme = "X", .width = 1 },
+        .style = .{},
+    });
+    const p: Popup(Color) = .{
+        .is_open = true,
+        .width   = .{ .percent = 40 },
+        .height  = .{ .percent = 40 },
+    };
+    _ = p.draw(win, catppuccin_mocha).?;
+    // Without a backdrop, the pre-painted "X" still shows.
+    try std.testing.expectEqualStrings("X", screen.readCell(0, 0).?.char.grapheme);
 }
 
 test "Popup.open / close / toggle: state transitions" {
