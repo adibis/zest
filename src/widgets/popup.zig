@@ -14,8 +14,14 @@
 //! Both dimensions degrade gracefully on tiny parents — the popup
 //! shrinks to fit but never reports a negative-sized body window.
 //!
-//! Subsequent commits add an optional title row, a backdrop dim
-//! pass, and handleKey for Esc-to-dismiss.
+//! When `title` is non-empty, the popup paints a banded header on
+//! the body's top row (styled per `title_style`) and the returned
+//! body window starts one row lower. The caller's content
+//! coordinates stay at (0, 0); they don't have to know whether a
+//! title row is present.
+//!
+//! Subsequent commits add a backdrop dim pass and handleKey for
+//! Esc-to-dismiss.
 
 const std = @import("std");
 const vaxis = @import("vaxis");
@@ -48,6 +54,14 @@ pub fn Popup(comptime C: type) type {
         /// Style applied to every body cell. Caller renders their
         /// own content on top — body style is the canvas.
         body_style:   Style(C) = .{},
+        /// Optional title text rendered on a banded top row inside
+        /// the border. The empty default skips the title row, and
+        /// the returned body window covers the full inner area.
+        /// One column per byte (ASCII); debug builds assert.
+        title:        []const u8 = "",
+        /// Style applied to every cell of the title row when
+        /// `title` is non-empty.
+        title_style:  Style(C) = .{},
 
         const Self = @This();
 
@@ -92,7 +106,39 @@ pub fn Popup(comptime C: type) type {
                 .char  = .{ .grapheme = " ", .width = 1 },
                 .style = theme.resolve(self.body_style),
             });
-            return inner;
+
+            if (self.title.len == 0) return inner;
+            if (std.debug.runtime_safety) {
+                for (self.title) |b| std.debug.assert(b < 0x80);
+            }
+            // Paint the title row first so title_style.bg spans the
+            // full width, then write the title text on top. The
+            // returned body window starts one row below the title.
+            const title_resolved = theme.resolve(self.title_style);
+            var col: u16 = 0;
+            while (col < inner.width) : (col += 1) {
+                inner.writeCell(col, 0, .{
+                    .char  = .{ .grapheme = " ", .width = 1 },
+                    .style = title_resolved,
+                });
+            }
+            const title_w: u16 = @intCast(@min(self.title.len, @as(usize, inner.width)));
+            const title_x: u16 = (inner.width - title_w) / 2;
+            var ti: usize = 0;
+            while (ti < title_w) : (ti += 1) {
+                inner.writeCell(title_x + @as(u16, @intCast(ti)), 0, .{
+                    .char  = .{ .grapheme = self.title[ti .. ti + 1], .width = 1 },
+                    .style = title_resolved,
+                });
+            }
+
+            if (inner.height == 1) {
+                // No room below the title — return a zero-height
+                // body so the caller's loops are safe but render
+                // nothing.
+                return inner.child(.{ .y_off = 1, .height = 0 });
+            }
+            return inner.child(.{ .y_off = 1, .height = inner.height - 1 });
         }
     };
 }
@@ -217,6 +263,84 @@ test "Popup.draw: body fills cells with body_style fg/bg" {
     // bg starts inside the border at (5, 3).
     const want_bg = catppuccin_mocha.colors.get(.color_0);
     try std.testing.expectEqual(want_bg, screen.readCell(5, 3).?.style.bg);
+}
+
+test "Popup.draw: title row is painted centred on row 0 of the inner area" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 10, .cols = 20, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 20, 10);
+    const p: Popup(Color) = .{
+        .is_open = true,
+        .width   = .{ .percent = 60 },
+        .height  = .{ .percent = 60 },
+        .title   = "Help",
+    };
+    _ = p.draw(win, catppuccin_mocha).?;
+    // Popup outer 12x6, centred at (4, 2). Border occupies the
+    // perimeter, so the inner content starts at (5, 3) with width
+    // 10. Title "Help" (4 bytes) centred in 10 → starts at offset 3,
+    // i.e. absolute screen col 5 + 3 = 8.
+    try std.testing.expectEqualStrings("H", screen.readCell(8,  3).?.char.grapheme);
+    try std.testing.expectEqualStrings("e", screen.readCell(9,  3).?.char.grapheme);
+    try std.testing.expectEqualStrings("l", screen.readCell(10, 3).?.char.grapheme);
+    try std.testing.expectEqualStrings("p", screen.readCell(11, 3).?.char.grapheme);
+}
+
+test "Popup.draw: title_style.bg paints the full title row" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 10, .cols = 20, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 20, 10);
+    const p: Popup(Color) = .{
+        .is_open     = true,
+        .width       = .{ .percent = 60 },
+        .height      = .{ .percent = 60 },
+        .title       = "X",
+        .title_style = .{ .bg = .color_4 },
+    };
+    _ = p.draw(win, catppuccin_mocha).?;
+    const want_bg = catppuccin_mocha.colors.get(.color_4);
+    // Inner row starts at screen y=3, spans cols 5..14.
+    try std.testing.expectEqual(want_bg, screen.readCell(5,  3).?.style.bg);
+    try std.testing.expectEqual(want_bg, screen.readCell(9,  3).?.style.bg);
+    try std.testing.expectEqual(want_bg, screen.readCell(14, 3).?.style.bg);
+}
+
+test "Popup.draw: empty title returns the full inner area as body" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 10, .cols = 20, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 20, 10);
+    const p: Popup(Color) = .{
+        .is_open = true,
+        .width   = .{ .percent = 60 },
+        .height  = .{ .percent = 60 },
+    };
+    const body = p.draw(win, catppuccin_mocha).?;
+    // 60%/60% of 20x10 → 12x6 outer → 10x4 inner with no title.
+    try std.testing.expectEqual(@as(u16, 10), body.width);
+    try std.testing.expectEqual(@as(u16, 4),  body.height);
+}
+
+test "Popup.draw: title set, body window shrinks by one row" {
+    var screen = try vaxis.Screen.init(std.testing.allocator, .{
+        .rows = 10, .cols = 20, .x_pixel = 0, .y_pixel = 0,
+    });
+    defer screen.deinit(std.testing.allocator);
+    const win = makeWin(&screen, 20, 10);
+    const p: Popup(Color) = .{
+        .is_open = true,
+        .width   = .{ .percent = 60 },
+        .height  = .{ .percent = 60 },
+        .title   = "Help",
+    };
+    const body = p.draw(win, catppuccin_mocha).?;
+    try std.testing.expectEqual(@as(u16, 10), body.width);
+    try std.testing.expectEqual(@as(u16, 3),  body.height);
 }
 
 test "Popup.open / close / toggle: state transitions" {
