@@ -209,6 +209,10 @@ const State = struct {
     cpu_label_buf:     [16]u8,
     ram_label_buf:     [16]u8,
     net_label_buf:     [32]u8,
+    /// Help popup overlaid on top of the active tab when open.
+    /// Toggled with `?`; Esc closes. The popup body renders a
+    /// keybinding cheatsheet inside `drawHelpPopup`.
+    help_popup:        zest.Popup(zest.Color),
 };
 
 fn activeFocus(state: *State) *zest.FocusStack {
@@ -645,8 +649,42 @@ fn draw(state: *State, win: vaxis.Window) void {
         .width = footer_win.width -| 2,
     });
     zest.Text.draw(footer_keys,
-        "h/l: tab  j/k: navigate  ^W: switch  0-4: jump  q: quit",
+        "h/l: tab  j/k: navigate  ?: help  q: quit",
         zest.DefaultStyle{ .fg = .color_7 }, theme, .{});
+
+    // Help popup overlays the active tab when open. Drawn last so
+    // it sits above the tab content and the footer is still
+    // visible underneath the dim.
+    drawHelpPopup(state, win, theme);
+}
+
+fn drawHelpPopup(state: *State, win: vaxis.Window, theme: zest.DefaultTheme) void {
+    const body_opt = state.help_popup.draw(win, theme);
+    const body = body_opt orelse return;
+    if (body.height == 0) return;
+    const lines = [_]struct { key: []const u8, desc: []const u8 }{
+        .{ .key = "  h / l",   .desc = "Switch tabs (Showcase / Dashboard)"   },
+        .{ .key = "  j / k",   .desc = "Navigate the focused list or table"   },
+        .{ .key = "  Ctrl-W",  .desc = "Switch domain (sidebar / main)"       },
+        .{ .key = "  1 - 4",   .desc = "Jump to sidebar pane (Showcase tab)"  },
+        .{ .key = "  0",       .desc = "Jump to the main pane (Showcase tab)" },
+        .{ .key = "  ?",       .desc = "Toggle this help"                     },
+        .{ .key = "  Esc",     .desc = "Close this popup"                     },
+        .{ .key = "  q",       .desc = "Quit"                                 },
+    };
+    var row: u16 = 0;
+    for (lines) |l| {
+        if (row >= body.height) break;
+        _ = body.print(&.{
+            .{ .text = l.key,
+               .style = theme.resolve(zest.DefaultStyle{ .fg = .color_4, .text = .{ .bold = true } }) },
+            .{ .text = "   ",
+               .style = theme.resolve(zest.DefaultStyle{ .fg = .color_8 }) },
+            .{ .text = l.desc,
+               .style = theme.resolve(zest.DefaultStyle{ .fg = .color_7 }) },
+        }, .{ .row_offset = row });
+        row += 1;
+    }
 }
 
 fn drawShowcaseTab(state: *State, content_win: vaxis.Window, theme: zest.DefaultTheme) void {
@@ -751,6 +789,20 @@ fn update(state: *State, event: zest.Event, alloc: std.mem.Allocator) zest.Updat
     _ = alloc;
     switch (event) {
         .key_press => |key| {
+            // Help popup gets first refusal on every key. Esc-while-
+            // open closes it (handleKey returns true); other keys
+            // while open fall through to nothing — the popup is
+            // modal, so the tab content shouldn't see them.
+            if (state.help_popup.handleKey(key)) return .redraw;
+            if (state.help_popup.is_open) {
+                // Modal: swallow non-Esc keys.
+                if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
+                return .idle;
+            }
+            if (key.matches('?', .{})) {
+                state.help_popup.toggle();
+                return .redraw;
+            }
             if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
 
             // Tab strip nav: h / l and arrow left / right.
@@ -907,6 +959,15 @@ pub fn main(init: std.process.Init) !void {
         .cpu_label_buf     = undefined,
         .ram_label_buf     = undefined,
         .net_label_buf     = undefined,
+        .help_popup        = .{
+            .width          = .{ .percent = 60 },
+            .height         = .{ .percent = 60 },
+            .title          = " Help ",
+            .title_style    = .{ .fg = .background, .bg = .color_4, .text = .{ .bold = true } },
+            .border_style   = .{ .fg = .color_4 },
+            .body_style     = .{ .bg = .color_0 },
+            .backdrop_style = .{},
+        },
     };
 
     try app.run(&state, activeFocus, update, draw, .{
