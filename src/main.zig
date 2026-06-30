@@ -662,27 +662,34 @@ fn drawHelpPopup(state: *State, win: vaxis.Window, theme: zest.DefaultTheme) voi
     const body_opt = state.help_popup.draw(win, theme);
     const body = body_opt orelse return;
     if (body.height == 0) return;
+    // Body sits on color_0 (matches the popup's body_style); every
+    // text segment carries this bg so the resolved cells don't
+    // punch through to terminal-default and break the surface.
+    const body_bg: zest.Color = .color_0;
+    const key_style:  zest.DefaultStyle = .{ .fg = .color_4, .bg = body_bg, .text = .{ .bold = true } };
+    const sep_style:  zest.DefaultStyle = .{ .fg = .color_8, .bg = body_bg };
+    const desc_style: zest.DefaultStyle = .{ .fg = .color_7, .bg = body_bg };
+
     const lines = [_]struct { key: []const u8, desc: []const u8 }{
-        .{ .key = "  h / l",   .desc = "Switch tabs (Showcase / Dashboard)"   },
-        .{ .key = "  j / k",   .desc = "Navigate the focused list or table"   },
-        .{ .key = "  Ctrl-W",  .desc = "Switch domain (sidebar / main)"       },
-        .{ .key = "  1 - 4",   .desc = "Jump to sidebar pane (Showcase tab)"  },
-        .{ .key = "  0",       .desc = "Jump to the main pane (Showcase tab)" },
-        .{ .key = "  ?",       .desc = "Toggle this help"                     },
-        .{ .key = "  Esc",     .desc = "Close this popup"                     },
-        .{ .key = "  q",       .desc = "Quit"                                 },
+        .{ .key = " h / l",   .desc = "Switch tabs (Showcase / Dashboard)"   },
+        .{ .key = " j / k",   .desc = "Navigate the focused list or table"   },
+        .{ .key = " Ctrl-W",  .desc = "Switch domain (sidebar / main)"       },
+        .{ .key = " 1 - 4",   .desc = "Jump to sidebar pane (Showcase tab)"  },
+        .{ .key = " 0",       .desc = "Jump to the main pane (Showcase tab)" },
+        .{ .key = " ?",       .desc = "Toggle this help"                     },
+        .{ .key = " Esc",     .desc = "Close this popup"                     },
+        .{ .key = " q",       .desc = "Quit"                                 },
     };
-    var row: u16 = 0;
+    // Single inner-padding row at the top so the first line breathes
+    // beneath the title bar.
+    var row: u16 = 1;
     for (lines) |l| {
         if (row >= body.height) break;
         _ = body.print(&.{
-            .{ .text = l.key,
-               .style = theme.resolve(zest.DefaultStyle{ .fg = .color_4, .text = .{ .bold = true } }) },
-            .{ .text = "   ",
-               .style = theme.resolve(zest.DefaultStyle{ .fg = .color_8 }) },
-            .{ .text = l.desc,
-               .style = theme.resolve(zest.DefaultStyle{ .fg = .color_7 }) },
-        }, .{ .row_offset = row });
+            .{ .text = l.key,  .style = theme.resolve(key_style) },
+            .{ .text = "   ",  .style = theme.resolve(sep_style) },
+            .{ .text = l.desc, .style = theme.resolve(desc_style) },
+        }, .{ .row_offset = row, .col_offset = 1 });
         row += 1;
     }
 }
@@ -960,13 +967,19 @@ pub fn main(init: std.process.Init) !void {
         .ram_label_buf     = undefined,
         .net_label_buf     = undefined,
         .help_popup        = .{
+            // 60% wide / 55% tall — big enough for the keybinding
+            // list to breathe, small enough that the active tab is
+            // still visible around the edges.
             .width          = .{ .percent = 60 },
-            .height         = .{ .percent = 60 },
+            .height         = .{ .percent = 55 },
             .title          = " Help ",
             .title_style    = .{ .fg = .background, .bg = .color_4, .text = .{ .bold = true } },
             .border_style   = .{ .fg = .color_4 },
             .body_style     = .{ .bg = .color_0 },
-            .backdrop_style = .{},
+            // No backdrop — the title bar + coloured border + the
+            // raised body bg are already enough to make the popup
+            // pop without wiping the tab content underneath.
+            .backdrop_style = null,
         },
     };
 
