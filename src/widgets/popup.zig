@@ -29,7 +29,12 @@
 //! visibility leave backdrop_style at its default and the parent
 //! content shows through unaltered.
 //!
-//! handleKey for Esc-to-dismiss lands in the next commit.
+//! `handleKey` consumes Esc when the popup is open and closes it,
+//! returning `true` so the caller short-circuits further routing.
+//! All other keys (and any key when the popup is closed) return
+//! `false` so the caller continues routing normally. Apps that
+//! want different dismissal semantics (Enter, q, y/n) inspect
+//! `is_open` and act directly rather than calling handleKey.
 
 const std = @import("std");
 const vaxis = @import("vaxis");
@@ -84,6 +89,20 @@ pub fn Popup(comptime C: type) type {
         pub fn open(self: *Self) void { self.is_open = true; }
         pub fn close(self: *Self) void { self.is_open = false; }
         pub fn toggle(self: *Self) void { self.is_open = !self.is_open; }
+
+        /// Close the popup on Esc. Returns `true` if the keypress
+        /// was consumed (the popup was open and Esc closed it) so
+        /// callers can short-circuit further routing; returns
+        /// `false` for every other key and for any key while the
+        /// popup is closed.
+        pub fn handleKey(self: *Self, key: vaxis.Key) bool {
+            if (!self.is_open) return false;
+            if (key.matches(vaxis.Key.escape, .{})) {
+                self.is_open = false;
+                return true;
+            }
+            return false;
+        }
 
         /// Render the popup's chrome (border + body fill) inside
         /// `win` and return the body window for the caller to draw
@@ -456,6 +475,29 @@ test "Popup.open / close / toggle: state transitions" {
     try std.testing.expect(p.is_open);
     p.toggle();
     try std.testing.expect(!p.is_open);
+}
+
+test "Popup.handleKey: Esc closes an open popup and returns true" {
+    var p: Popup(Color) = .{ .is_open = true };
+    const esc: vaxis.Key = .{ .codepoint = vaxis.Key.escape };
+    const consumed = p.handleKey(esc);
+    try std.testing.expect(consumed);
+    try std.testing.expect(!p.is_open);
+}
+
+test "Popup.handleKey: closed popup returns false on every key" {
+    var p: Popup(Color) = .{};
+    const esc: vaxis.Key = .{ .codepoint = vaxis.Key.escape };
+    try std.testing.expect(!p.handleKey(esc));
+    const j: vaxis.Key = .{ .codepoint = 'j' };
+    try std.testing.expect(!p.handleKey(j));
+}
+
+test "Popup.handleKey: non-Esc key while open returns false and leaves state alone" {
+    var p: Popup(Color) = .{ .is_open = true };
+    const j: vaxis.Key = .{ .codepoint = 'j' };
+    try std.testing.expect(!p.handleKey(j));
+    try std.testing.expect(p.is_open);
 }
 
 test "Popup(C): works with a user-defined color enum" {
